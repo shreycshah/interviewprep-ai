@@ -3,7 +3,7 @@ import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
 import time
 import re
-from datetime import date
+from datetime import date, datetime
 from dataclasses import dataclass
 from typing import Optional, List, Dict
 
@@ -371,6 +371,7 @@ class GFGScraper:
         print(f"Batch ID: {self.batch_id}")
 
         started_at = ScrapedInterviewDocument.now_iso()
+        start_time = datetime.now()
 
         sitemaps = self._get_sitemaps()
         if not sitemaps:
@@ -390,11 +391,18 @@ class GFGScraper:
         documents = self._scrape_articles(urls)
         # manifest = self._create_manifest(sitemaps, started_at)
 
+        end_time = datetime.now()
+        delta = end_time - start_time
+        total_seconds = int(delta.total_seconds())
+        minutes, seconds = divmod(total_seconds, 60)
+
         print("\n" + "=" * 60)
         print("SCRAPE COMPLETE")
         print("=" * 60)
         print(f"Files collected: {self.stats['files_collected']}")
         print(f"Errors: {self.stats['errors']}")
+
+        print(f"Total time taken for GFG Scraping: {minutes} min {seconds} sec")
 
 # ============== ENTRY POINT ==============
 # if __name__ == "__main__":
