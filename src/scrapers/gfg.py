@@ -396,8 +396,12 @@ class GFGScraper:
         print(f"Files collected: {self.stats['files_collected']}")
         print(f"Errors: {self.stats['errors']}")
 
-# # # ============== ENTRY POINT ==============
+# ============== ENTRY POINT ==============
 # if __name__ == "__main__":
-#     storage = GCSBackend(bucket_name="interviewprep-ai-data", credentials_path=rf"/Users/shreycshah/Desktop/Coursework/Spring26/IE7374/Project/interviewprep-ai/gcs_connection_string.json")
+#     storage = GCSBackend(
+#         bucket_name="interviewprep-ai-data",
+#         project_id="professorbot-dovbsg",
+#         secret_name="gcs-service-account-key",
+#     )
 #     scraper = GFGScraper(scrape_type=GFGScraperConfigs().SCRAPE_TYPE, storage=storage)
 #     scraper.run()
