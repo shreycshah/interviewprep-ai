@@ -24,19 +24,6 @@ import hashlib
 import random
 import time
 
-
-def generate_document_id(url):
-    """Generate document_id from URL: medium_article-slug"""
-    parts = url.rstrip('/').split('/')
-    slug = parts[-1] if parts else "unknown"
-    return f"medium_{slug}"
-
-
-def generate_content_hash(title, content):
-    """Generate MD5 hash for deduplication."""
-    return hashlib.md5(f"{title}{content}".encode()).hexdigest()
-
-
 def random_delay(min_seconds, max_seconds):
     """Sleep for a random amount of time to mimic human behavior."""
     delay = random.uniform(min_seconds, max_seconds)
@@ -750,20 +737,20 @@ class MediumScraper:
 
 
 # ============== ENTRY POINT ==============
-from src.storage.gcs_backend import GCSBackend
+# from src.storage.gcs_backend import GCSBackend
 
-if __name__ == "__main__":
-    storage = GCSBackend(
-        bucket_name="interviewprep-ai-data",
-        project_id="professorbot-dovbsg",
-        secret_name="gcs-service-account-key",
-    )
+# if __name__ == "__main__":
+#     storage = GCSBackend(
+#         bucket_name="interviewprep-ai-data",
+#         project_id="professorbot-dovbsg",
+#         secret_name="gcs-service-account-key",
+#     )
 
-    config = MediumScraperConfigs()
+#     config = MediumScraperConfigs()
 
-    scraper = MediumScraper(
-        scrape_type=config.SCRAPE_TYPE,
-        config=config,
-        storage=storage,
-    )
-    scraper.run()
+#     scraper = MediumScraper(
+#         scrape_type=config.SCRAPE_TYPE,
+#         config=config,
+#         storage=storage,
+#     )
+#     scraper.run()
