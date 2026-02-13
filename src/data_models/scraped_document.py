@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Dict, Optional
 import hashlib
 import json
-
+import base64
 
 @dataclass(frozen=True)
 class ScrapedInterviewDocument:
@@ -65,12 +65,11 @@ class ScrapedInterviewDocument:
         return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     @staticmethod
-    def generate_document_id(source_platform: str,source_url: str) -> str:
-        """
-        Generate a stable document identifier.
-        """
-        url_hash = hashlib.sha256(source_url.encode()).hexdigest()
-        return f"{source_platform}_{url_hash}"
+    def generate_document_id(source_platform: str, source_url: str) -> str:
+        """Generate a stable document identifier."""
+        digest = hashlib.sha256(source_url.encode()).digest()
+        short_hash = base64.urlsafe_b64encode(digest).decode()[:6]
+        return f"{source_platform}_{short_hash}"
 
 
 
