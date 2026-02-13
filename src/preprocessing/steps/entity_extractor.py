@@ -581,20 +581,3 @@ class EntityExtractor(PreprocessingStep):
 #     entity_extractor = EntityExtractor()
 #     doc = entity_extractor.process(doc)
 #     print(doc)
-#
-#
-#     def get_all_keys(d):
-#         keys = []
-#
-#         def recurse(obj):
-#             if isinstance(obj, dict):
-#                 for k, v in obj.items():
-#                     keys.append(k)
-#                     recurse(v)
-#             elif isinstance(obj, list):
-#                 for item in obj:
-#                     recurse(item)
-#
-#         recurse(d)
-#         return keys
-#     print(get_all_keys(doc))
