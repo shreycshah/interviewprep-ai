@@ -239,40 +239,40 @@ class QualityFilter(PreprocessingStep):
         # Weighted combination
         return round(0.5 * length_score + 0.5 * signal_score, 3)
 
-if __name__ == "__main__":
-    from preprocessing.steps.content_normalizer import ContentNormalizer
-    content_normalizer = ContentNormalizer()
-    from preprocessing.steps.pii_remover import PIIRemover
-    pii_remover = PIIRemover()
-    from preprocessing.steps.quality_filter import QualityFilter
-    quality_filter = QualityFilter()
-
-    doc = {
-      "document_id": "medium_6c84cb815d8654cde2cb531ba87eafaec9fb6328ef227da3af9eca6d59f3efdd",
-      "source_platform": "medium",
-      "source_url": "https://medium.com/@sumitpardhiya/john-deere-my-interview-experience-ccb2e763ffe5",
-      "title": "🚜 John Deere — My Interview Experience",
-      "raw_content": "### 🚜 John Deere — My Interview Experience\n\nRecently, I had the opportunity to interview with John Deere for the position of AI/ML Engineer. The process began when I received a Naukri invite from their hiring team. After I applied, a third-party recruiter contacted me, mentioning that he had gone through my profile and was quite impressed. He requested my updated resume to proceed further with the process.\n\nAfter about three days, he reached out again to inform me that my resume was shortlisted, and they wanted to schedule my first interview round.\n\n#### Preparation Phase (Or Lack of It!)\n\nSince it had been almost two years since my last interview, I wasn’t fully confident in my preparation. I told them that I’d need some time to brush up on my concepts. However, since they were moving fast, I was given just three days to prepare.\n\nUnfortunately, due to a small communication gap, I thought my interview was scheduled for the 31st, but it was actually on the 30th. So, when they contacted me that morning to confirm, I realized my mistake — and honestly, I wasn’t as prepared as I wanted to be.\n\n#### Round 1 — Technical Interview\n\nThe interview began with the usual introduction and questions related to my past projects. That part went quite smoothly — I was confident and able to explain my work clearly.\n\nNext, the interviewer moved on to Machine Learning and Deep Learning questions. The initial ones were quite manageable — topics like model evaluation, bias-variance, and regularization. But as the discussion went deeper into advanced ML concepts, I started struggling. I knew the topics but couldn’t recall some of the details properly because of my rushed preparation.\n\nAfter that, they asked a DSA (Data Structures and Algorithms) question — a relatively easy one — which I was able to solve quickly and correctly.\n\nThe round lasted about an hour in total.\n\n#### Result & Reflection\n\nTwo days later, I received a call informing me that I hadn’t cleared the round. Honestly, I wasn’t surprised — I knew I hadn’t given my 100%. But I took it positively because the questions they asked were very relevant and insightful, and similar ones started repeating in other interviews later.\n\nIt reminded me how important consistent revision and practice are, especially in a field that evolves as fast as AI/ML.\n\n### 💡 Final Thoughts\n\nEven though I didn’t make it through, the John Deere interview was a great learning experience. The process was smooth, the interviewers were professional and polite, and it helped me understand where I stood technically and what areas I needed to improve.\n\nIf I’d had just one more day of preparation, I genuinely believe I could have cracked it. But more importantly, it reminded me that every interview adds something valuable to your journey — whether it’s success or learning.",
-      "published_at": "2025-11-10T02:58:01.902Z",
-      "scraped_at": "2026-02-12T17:40:57Z",
-      "scrape_type": "bulk",
-      "scrape_batch_id": "2026-02-12_bulk",
-      "source_metadata": {
-        "description": "Recently, I had the opportunity to interview with John Deere for the position of AI/ML Engineer. The process began when I received a…",
-        "reading_time": "2 min read",
-        "tags": [
-          "Interview",
-          "Interview Questions",
-          "Interview Experience",
-          "Jobs",
-          "AI"
-        ],
-        "featured_image": "https://miro.medium.com/v2/da:true/bc1f8416df0cad099e43cda2872716e5864f18a73bda2a7547ea082aca9b5632",
-        "canonical_url": "https://medium.com/@sumitpardhiya/john-deere-my-interview-experience-ccb2e763ffe5"
-      },
-      "content_hash": "fe5824be821df04f830c866f368cf657a9c8b90d5c227609c25f9cf2d50f93be"
-    }
-    doc = content_normalizer.process(doc)
-    doc = pii_remover.process(doc)
-    doc = quality_filter.process(doc)
-    print(doc)
+# if __name__ == "__main__":
+#     from preprocessing.steps.content_normalizer import ContentNormalizer
+#     content_normalizer = ContentNormalizer()
+#     from preprocessing.steps.pii_remover import PIIRemover
+#     pii_remover = PIIRemover()
+#     from preprocessing.steps.quality_filter import QualityFilter
+#     quality_filter = QualityFilter()
+#
+#     doc = {
+#       "document_id": "medium_6c84cb815d8654cde2cb531ba87eafaec9fb6328ef227da3af9eca6d59f3efdd",
+#       "source_platform": "medium",
+#       "source_url": "https://medium.com/@sumitpardhiya/john-deere-my-interview-experience-ccb2e763ffe5",
+#       "title": "🚜 John Deere — My Interview Experience",
+#       "raw_content": "### 🚜 John Deere — My Interview Experience\n\nRecently, I had the opportunity to interview with John Deere for the position of AI/ML Engineer. The process began when I received a Naukri invite from their hiring team. After I applied, a third-party recruiter contacted me, mentioning that he had gone through my profile and was quite impressed. He requested my updated resume to proceed further with the process.\n\nAfter about three days, he reached out again to inform me that my resume was shortlisted, and they wanted to schedule my first interview round.\n\n#### Preparation Phase (Or Lack of It!)\n\nSince it had been almost two years since my last interview, I wasn’t fully confident in my preparation. I told them that I’d need some time to brush up on my concepts. However, since they were moving fast, I was given just three days to prepare.\n\nUnfortunately, due to a small communication gap, I thought my interview was scheduled for the 31st, but it was actually on the 30th. So, when they contacted me that morning to confirm, I realized my mistake — and honestly, I wasn’t as prepared as I wanted to be.\n\n#### Round 1 — Technical Interview\n\nThe interview began with the usual introduction and questions related to my past projects. That part went quite smoothly — I was confident and able to explain my work clearly.\n\nNext, the interviewer moved on to Machine Learning and Deep Learning questions. The initial ones were quite manageable — topics like model evaluation, bias-variance, and regularization. But as the discussion went deeper into advanced ML concepts, I started struggling. I knew the topics but couldn’t recall some of the details properly because of my rushed preparation.\n\nAfter that, they asked a DSA (Data Structures and Algorithms) question — a relatively easy one — which I was able to solve quickly and correctly.\n\nThe round lasted about an hour in total.\n\n#### Result & Reflection\n\nTwo days later, I received a call informing me that I hadn’t cleared the round. Honestly, I wasn’t surprised — I knew I hadn’t given my 100%. But I took it positively because the questions they asked were very relevant and insightful, and similar ones started repeating in other interviews later.\n\nIt reminded me how important consistent revision and practice are, especially in a field that evolves as fast as AI/ML.\n\n### 💡 Final Thoughts\n\nEven though I didn’t make it through, the John Deere interview was a great learning experience. The process was smooth, the interviewers were professional and polite, and it helped me understand where I stood technically and what areas I needed to improve.\n\nIf I’d had just one more day of preparation, I genuinely believe I could have cracked it. But more importantly, it reminded me that every interview adds something valuable to your journey — whether it’s success or learning.",
+#       "published_at": "2025-11-10T02:58:01.902Z",
+#       "scraped_at": "2026-02-12T17:40:57Z",
+#       "scrape_type": "bulk",
+#       "scrape_batch_id": "2026-02-12_bulk",
+#       "source_metadata": {
+#         "description": "Recently, I had the opportunity to interview with John Deere for the position of AI/ML Engineer. The process began when I received a…",
+#         "reading_time": "2 min read",
+#         "tags": [
+#           "Interview",
+#           "Interview Questions",
+#           "Interview Experience",
+#           "Jobs",
+#           "AI"
+#         ],
+#         "featured_image": "https://miro.medium.com/v2/da:true/bc1f8416df0cad099e43cda2872716e5864f18a73bda2a7547ea082aca9b5632",
+#         "canonical_url": "https://medium.com/@sumitpardhiya/john-deere-my-interview-experience-ccb2e763ffe5"
+#       },
+#       "content_hash": "fe5824be821df04f830c866f368cf657a9c8b90d5c227609c25f9cf2d50f93be"
+#     }
+#     doc = content_normalizer.process(doc)
+#     doc = pii_remover.process(doc)
+#     doc = quality_filter.process(doc)
+#     print(doc)
