@@ -25,17 +25,17 @@ class ScrapedInterviewDocument:
     scrape_batch_id: str
     source_metadata: Dict = field(default_factory=dict)
 
-    @property
-    def content_hash(self) -> str:
-        """
-        Stable hash of normalized title and raw content for deduplication.
-        Uses SHA256 for better collision resistance.
-        """
-        # Normalize: lowercase, strip whitespace, add separator
-        normalized_title = self.title.lower().strip()
-        normalized_content = self.raw_content.lower().strip()
-        payload = f"{normalized_title}|||{normalized_content}".encode('utf-8')
-        return hashlib.sha256(payload).hexdigest()
+    # @property
+    # def content_hash(self) -> str:
+    #     """
+    #     Stable hash of normalized title and raw content for deduplication.
+    #     Uses SHA256 for better collision resistance.
+    #     """
+    #     # Normalize: lowercase, strip whitespace, add separator
+    #     normalized_title = self.title.lower().strip()
+    #     normalized_content = self.raw_content.lower().strip()
+    #     payload = f"{normalized_title}|||{normalized_content}".encode('utf-8')
+    #     return hashlib.sha256(payload).hexdigest()
 
     def to_dict(self) -> Dict:
         """Convert the document to a serializable dictionary."""
