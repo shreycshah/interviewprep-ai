@@ -22,6 +22,32 @@ class LeetCodeScraperConfigs:
 
     RAW_PREFIX = "raw"
 
+    # ── Tags to skip during company extraction ──
+    SKIP_TAGS = frozenset({
+        "interview", "interview-experience", "interview-question",
+        "compensation", "system-design", "behavioral", "offer",
+        "rejected", "oa", "online-assessment", "career", "feedback",
+        "job-search-2", "hiring-freshers", "trending-2", "react",
+        "frontend", "full-stack", "backend", "trending",
+    })
+
+    # ── Known companies for extraction ──
+    KNOWN_COMPANIES = [
+        "Google", "Amazon", "Meta", "Facebook", "Microsoft", "Apple",
+        "Netflix", "Uber", "Lyft", "Airbnb", "Stripe", "Coinbase",
+        "Walmart", "Salesforce", "Oracle", "Adobe", "Nvidia", "Intel",
+        "Tesla", "Twitter", "LinkedIn", "Snap", "TikTok", "ByteDance",
+        "Atlassian", "Dropbox", "Spotify", "DoorDash", "Instacart",
+        "IBM", "Cisco", "VMware", "PayPal", "Square", "Block",
+        "Robinhood", "Palantir", "Snowflake", "Databricks", "MongoDB",
+        "Intuit", "Visa", "Mastercard", "Goldman Sachs", "JPMorgan",
+        "Morgan Stanley", "Deloitte", "Accenture", "TCS", "Infosys",
+        "Wipro", "Swiggy", "Zomato", "Flipkart", "Razorpay",
+        "Samsung", "Shopify", "Pinterest", "Reddit", "Discord",
+        "Applied Intuition", "Two Sigma", "Citadel", "DE Shaw",
+        "Jane Street", "HRT", "Tower Research",
+    ]
+
     # ── GraphQL Queries (captured from browser DevTools) ──
 
     LIST_QUERY = """
@@ -138,4 +164,4 @@ class LeetCodeScraperConfigs:
         if scrape_type == "bulk":
             return f"{cls.RAW_PREFIX}/bulk/leetcode"
         else:
-            return f"{cls.RAW_PREFIX}/incremental/{cls.get_today_str()}/leetcode"   
+            return f"{cls.RAW_PREFIX}/incremental/{cls.get_today_str()}/leetcode"
