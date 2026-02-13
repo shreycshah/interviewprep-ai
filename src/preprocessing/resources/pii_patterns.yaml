@@ -61,11 +61,24 @@ patterns:
     type: "personal_url"
     flags: ["IGNORECASE"]
 
-  # Personal portfolio / blog URLs with name-like patterns
-  - pattern: "(?:https?://)?[\\w\\-]+\\.(?:me|dev|io|com)/[\\w\\-]*"
+  # Instagram
+  - pattern: "(?:https?://)?(?:www\\.)?instagram\\.com/[A-Za-z0-9_.]+/?"
     placeholder: "[PERSONAL_URL]"
     type: "personal_url"
-    flags: ["IGNORECASE"]
+    flags: [ "IGNORECASE" ]
+
+  # Facebook (profile URLs only, not pages/groups)
+  - pattern: "(?:https?://)?(?:www\\.)?facebook\\.com/[A-Za-z0-9.]+/?"
+    placeholder: "[PERSONAL_URL]"
+    type: "personal_url"
+    flags: [ "IGNORECASE" ]
+
+  # LeetCode user profile only
+  - pattern: "(?:https?://)?(?:www\\.)?leetcode\\.com/u/[A-Za-z0-9_\\-]+/?"
+    placeholder: "[PERSONAL_URL]"
+    type: "personal_url"
+    flags: [ "IGNORECASE" ]
+
 
   # ─── ID Numbers ───────────────────────────────────
   # Aadhaar (India): 1234 5678 9012 (12 digits, often space-separated)
