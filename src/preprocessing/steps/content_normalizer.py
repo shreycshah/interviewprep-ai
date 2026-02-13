@@ -168,6 +168,10 @@ class ContentNormalizer(PreprocessingStep):
         doc["cleaned_content"] = cleaned
         doc["word_count"] = len(cleaned.split())
         doc["cleaned_title"] = self._clean_title(doc.get("title", ""))
+
+        if "preprocessing_steps" not in doc:
+            doc["preprocessing_steps"] = {}
+
         doc["preprocessing_steps"]["1_content_normalizer"] = True
 
         return doc
