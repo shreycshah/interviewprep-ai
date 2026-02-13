@@ -114,8 +114,8 @@ class QualityFilter(PreprocessingStep):
             3. Language detection (statistical model)
             4. Content signal ratio (keyword scan)
         """
-        cleaned = doc.get("cleaned_content", "")
-        word_count = doc.get("word_count", len(cleaned.split()))
+        cleaned = doc.get("preprocessing", "").get("pii_remover","").get("content","")
+        word_count = doc.get("preprocessing",{}).get("content_normalizer", {}).get("word_count", 0)
 
         # ── Check 1: Word count bounds ──
         if word_count < self.min_word_count:
@@ -142,15 +142,15 @@ class QualityFilter(PreprocessingStep):
             doc["_filter_reason"] = "low_interview_signal"
             return None
 
+        if "quality_filter" not in doc["preprocessing"]:
+            doc["preprocessing"]["quality_filter"] = {}
+
         # ── All checks passed — compute quality score ──
-        doc["quality_score"] = self._compute_quality_score(
+        doc["preprocessing"]["quality_filter"]["quality_score"] = self._compute_quality_score(
             word_count, signal_ratio
         )
 
-        if "preprocessing_steps" not in doc:
-            doc["preprocessing_steps"] = {}
-
-        doc["preprocessing_steps"]["3_quality_filter"] = True
+        doc["preprocessing"]["quality_filter"]["completed"] = True
 
         return doc
 

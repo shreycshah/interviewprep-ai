@@ -98,8 +98,8 @@ class PIIRemover(PreprocessingStep):
         This step never returns None — all documents survive,
         just with PII redacted.
         """
-        cleaned = doc.get("cleaned_content", "")
-        title = doc.get("cleaned_title", "")
+        cleaned = doc.get("preprocessing", "").get("content_normalizer","").get("content","")
+        title = doc.get("preprocessing", "").get("content_normalizer","").get("title","")
 
         if not cleaned:
             print("Cleaned Content not found. Please pass it through Content Normalizer first")
@@ -112,19 +112,19 @@ class PIIRemover(PreprocessingStep):
         title, _ = self._regex_scrub(title)
         _merge_counts(pii_counts, regex_counts)
 
-        doc["cleaned_content"] = cleaned
-        doc["cleaned_title"] = title
-        doc["pii_counts"] = pii_counts
+        if "pii_remover" not in doc["preprocessing"]:
+            doc["preprocessing"]["pii_remover"] = {}
+
+        doc["preprocessing"]["pii_remover"]["content"] = cleaned
+        doc["preprocessing"]["pii_remover"]["title"] = title
+        doc["preprocessing"]["pii_remover"]["pii_counts"] = pii_counts
         if pii_counts:
             self.logger.debug(
                 f"Doc '{doc.get('document_id', 'unknown')}' — "
                 f"PII found: {pii_counts}"
             )
 
-        if "preprocessing_steps" not in doc:
-            doc["preprocessing_steps"] = {}
-
-        doc["preprocessing_steps"]["2_pii_remover"] = True
+        doc["preprocessing"]["pii_remover"]["completed"] = True
 
         return doc
 

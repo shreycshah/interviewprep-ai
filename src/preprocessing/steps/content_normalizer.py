@@ -166,14 +166,16 @@ class ContentNormalizer(PreprocessingStep):
             doc["_filter_reason"] = "empty_after_cleaning"
             return None
 
-        doc["cleaned_content"] = cleaned
-        doc["word_count"] = len(cleaned.split())
-        doc["cleaned_title"] = self._clean_title(doc.get("title", ""))
+        if "preprocessing" not in doc:
+            doc["preprocessing"] = {}
+        if "content_normalizer" not in doc["preprocessing"]:
+            doc["preprocessing"]["content_normalizer"] = {}
 
-        if "preprocessing_steps" not in doc:
-            doc["preprocessing_steps"] = {}
+        doc["preprocessing"]["content_normalizer"]["content"] = cleaned
+        doc["preprocessing"]["content_normalizer"]["title"] = self._clean_title(doc.get("title", ""))
+        doc["preprocessing"]["content_normalizer"]["word_count"] = len(cleaned.split())
 
-        doc["preprocessing_steps"]["1_content_normalizer"] = True
+        doc["preprocessing"]["content_normalizer"]["completed"] = True
 
         return doc
 
@@ -279,6 +281,5 @@ class ContentNormalizer(PreprocessingStep):
 #       },
 #       "content_hash": "3d71ec8ab7631251c215f7b8ac0bac1308fd4e85170fb30b5d914deadc79b3dc"
 #     }
-#     print(doc['raw_content'])
 #     print("*"*50)
-#     print(normalizer.process(doc)['cleaned_content'])
+#     print(normalizer.process(doc))
