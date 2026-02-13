@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Dict, Optional
 import hashlib
 import json
-import base64
+
 
 @dataclass(frozen=True)
 class ScrapedInterviewDocument:
@@ -25,17 +25,17 @@ class ScrapedInterviewDocument:
     scrape_batch_id: str
     source_metadata: Dict = field(default_factory=dict)
 
-    # @property
-    # def content_hash(self) -> str:
-    #     """
-    #     Stable hash of normalized title and raw content for deduplication.
-    #     Uses SHA256 for better collision resistance.
-    #     """
-    #     # Normalize: lowercase, strip whitespace, add separator
-    #     normalized_title = self.title.lower().strip()
-    #     normalized_content = self.raw_content.lower().strip()
-    #     payload = f"{normalized_title}|||{normalized_content}".encode('utf-8')
-    #     return hashlib.sha256(payload).hexdigest()
+    @property
+    def content_hash(self) -> str:
+        """
+        Stable hash of normalized title and raw content for deduplication.
+        Uses SHA256 for better collision resistance.
+        """
+        # Normalize: lowercase, strip whitespace, add separator
+        normalized_title = self.title.lower().strip()
+        normalized_content = self.raw_content.lower().strip()
+        payload = f"{normalized_title}|||{normalized_content}".encode('utf-8')
+        return hashlib.sha256(payload).hexdigest()
 
     def to_dict(self) -> Dict:
         """Convert the document to a serializable dictionary."""
@@ -65,11 +65,9 @@ class ScrapedInterviewDocument:
         return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     @staticmethod
-    def generate_document_id(source_platform: str, source_url: str) -> str:
-        """Generate a stable document identifier."""
-        digest = hashlib.sha256(source_url.encode()).digest()
-        short_hash = base64.urlsafe_b64encode(digest).decode()[:6]
-        return f"{source_platform}_{short_hash}"
-
-
-
+    def generate_document_id(source_platform: str,source_url: str) -> str:
+        """
+        Generate a stable document identifier.
+        """
+        url_hash = hashlib.sha256(source_url.encode()).hexdigest()
+        return f"{source_platform}_{url_hash}"
