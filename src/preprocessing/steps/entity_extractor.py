@@ -519,82 +519,82 @@ class EntityExtractor(PreprocessingStep):
                     return level
         return "unknown"
 
-if __name__ == "__main__":
-    from preprocessing.steps.content_normalizer import ContentNormalizer
-    content_normalizer = ContentNormalizer()
-    from preprocessing.steps.pii_remover import PIIRemover
-    pii_remover = PIIRemover()
-    from preprocessing.steps.quality_filter import QualityFilter
-    quality_filter = QualityFilter()
-
-    doc = {
-      "document_id": "leetcode_d52d8899feb5712ed525ac1cfe01e6257e104ba0bb343bfa59b27ba8d98f5e2a",
-      "source_platform": "leetcode",
-      "source_url": "https://leetcode.com/discuss/post/7571535/cleartrip-flipkart-sde3-interview-experi-yjlk/",
-      "title": "ClearTrip (Flipkart) SDE3 Interview Experience",
-      "raw_content": "Hi everyone,\nI have studied a lot of interview experiences here and after appearing for multiple companies I have literally come to appreciate what this community is. I just want to give back.\nSo recently I got selected for the SDE3 role at ClearTrip (Flipkart) and I want to share my interview experience.\n- There were in total 5 rounds, 1 online test and then 4 rounds on-site in a single day, all 4 rounds were elimination rounds. I got a call through recruiter, I have found myself to be particularly lucky that I get calls as my resume gets shortlisted. I try to be active on LinkedIn, Naukri and InstaHyre, I try to apply as many jobs as possible and also added OpenToWork on my LinkedIn profile, was actively replying to messages on LinkedIn from recruiters and also commenting on job related posts\n- **ROUND 1 - DSA online test (1 hr),** I don't remember the exact questions but they were easy to average medium difficulty, for someone preparing DSA for interviews, this test should not be a problem.\n- **ON-SITE LOOP 1 - Machine coding round,** we were all given the same question and had to present our solution afterwards to an interviewer. We were asked ClearFit Demo application question which has already been given in full by other interview experiences, you have around 1:30-2:00 hrs to complete and then 1:00 hr to explain and answer questions on the same.\n- **ON-SITE LOOP 2 - DSA round (1 hr),** I was asked 3 questions, 2 questions related to monotonic stack (most famous questions on this topic) and 1 question similar to koko banana or flower bouquet problem mixed with some arithmetic\n- **ON-SITE LOOP 3 - HLD (1 hr),** I was asked to design a metrics capture and visualization tool, something like prometheus and grafana. Focus was on streaming millions of data points and how to handle such big load. Also went into discussions around the choice of databases both OLAP and OLTP and some depth of OLAP. Also discussed on how we would want to reduce latency in our visualization dashboards. You can talk about data validity, PII, and tiered storage as well.\n- **ON-SITE LOOP 4 - HM (Behavioral) (1 hr),** It can be mostly anything from technical to managerial to techno-managerial, mine was mostly technical and 10 mins of managerial discussion, main focus was on the most big project and why do you want to join CT and why did you leave your last company.\n\nThe process took a complete day and was on a Saturday. Hope this post helps someone, like others have helped me.",
-      "published_at": "2026-02-11T15:02:06.667317+00:00",
-      "scraped_at": "2026-02-11T15:30:00Z",
-      "scrape_type": "bulk",
-      "scrape_batch_id": "2026-02-11_bulk",
-      "source_metadata": {
-        "topic_id": "7571535",
-        "slug": "cleartrip-flipkart-sde3-interview-experi-yjlk",
-        "tags": [
-          "Interview"
-        ],
-        "tag_slugs": [
-          "interview"
-        ],
-        "company": "Flipkart",
-        "author_username": "yash_10",
-        "hit_count": 27,
-        "comment_count": 0,
-        "reactions": {
-          "UPVOTE": 1
-        },
-        "created_at": "2026-02-11T15:02:06.667317+00:00",
-        "updated_at": "2026-02-11T15:04:46.141895+00:00",
-        "comments": []
-      },
-      "content_hash": "e0ef84b94941d43ace566dd5add8e9c127563fb07cab4b54858dd10a536a0250"
-    }
-
-
-    doc = content_normalizer.process(doc)
-    doc = pii_remover.process(doc)
-    doc = quality_filter.process(doc)
-
-    # from preprocessing.steps.deduplicator import Deduplicator
-    # # At pipeline start — load existing hashes from DB
-    # # existing = {row.content_hash for row in db.query("SELECT content_hash_exact FROM processed_documents")}
-    # existing = {"e9fbc11657ac125b1dcb6f2bb5dda80ffb894dafd944d07be8f32d8a84cf91ba"}
-    # dedup = Deduplicator(
-    #     existing_hashes=existing,
-    #     # state_dir="/tmp/pipeline_state"
-    # )
-    # # After batch
-    # surviving_docs = dedup.process(doc)
-    # dedup.save_state()
-
-    from preprocessing.steps.entity_extractor import EntityExtractor
-    entity_extractor = EntityExtractor()
-    doc = entity_extractor.process(doc)
-    print(doc)
-
-
-    def get_all_keys(d):
-        keys = []
-
-        def recurse(obj):
-            if isinstance(obj, dict):
-                for k, v in obj.items():
-                    keys.append(k)
-                    recurse(v)
-            elif isinstance(obj, list):
-                for item in obj:
-                    recurse(item)
-
-        recurse(d)
-        return keys
-    print(get_all_keys(doc))
+# if __name__ == "__main__":
+#     from preprocessing.steps.content_normalizer import ContentNormalizer
+#     content_normalizer = ContentNormalizer()
+#     from preprocessing.steps.pii_remover import PIIRemover
+#     pii_remover = PIIRemover()
+#     from preprocessing.steps.quality_filter import QualityFilter
+#     quality_filter = QualityFilter()
+#
+#     doc = {
+#       "document_id": "leetcode_d52d8899feb5712ed525ac1cfe01e6257e104ba0bb343bfa59b27ba8d98f5e2a",
+#       "source_platform": "leetcode",
+#       "source_url": "https://leetcode.com/discuss/post/7571535/cleartrip-flipkart-sde3-interview-experi-yjlk/",
+#       "title": "ClearTrip (Flipkart) SDE3 Interview Experience",
+#       "raw_content": "Hi everyone,\nI have studied a lot of interview experiences here and after appearing for multiple companies I have literally come to appreciate what this community is. I just want to give back.\nSo recently I got selected for the SDE3 role at ClearTrip (Flipkart) and I want to share my interview experience.\n- There were in total 5 rounds, 1 online test and then 4 rounds on-site in a single day, all 4 rounds were elimination rounds. I got a call through recruiter, I have found myself to be particularly lucky that I get calls as my resume gets shortlisted. I try to be active on LinkedIn, Naukri and InstaHyre, I try to apply as many jobs as possible and also added OpenToWork on my LinkedIn profile, was actively replying to messages on LinkedIn from recruiters and also commenting on job related posts\n- **ROUND 1 - DSA online test (1 hr),** I don't remember the exact questions but they were easy to average medium difficulty, for someone preparing DSA for interviews, this test should not be a problem.\n- **ON-SITE LOOP 1 - Machine coding round,** we were all given the same question and had to present our solution afterwards to an interviewer. We were asked ClearFit Demo application question which has already been given in full by other interview experiences, you have around 1:30-2:00 hrs to complete and then 1:00 hr to explain and answer questions on the same.\n- **ON-SITE LOOP 2 - DSA round (1 hr),** I was asked 3 questions, 2 questions related to monotonic stack (most famous questions on this topic) and 1 question similar to koko banana or flower bouquet problem mixed with some arithmetic\n- **ON-SITE LOOP 3 - HLD (1 hr),** I was asked to design a metrics capture and visualization tool, something like prometheus and grafana. Focus was on streaming millions of data points and how to handle such big load. Also went into discussions around the choice of databases both OLAP and OLTP and some depth of OLAP. Also discussed on how we would want to reduce latency in our visualization dashboards. You can talk about data validity, PII, and tiered storage as well.\n- **ON-SITE LOOP 4 - HM (Behavioral) (1 hr),** It can be mostly anything from technical to managerial to techno-managerial, mine was mostly technical and 10 mins of managerial discussion, main focus was on the most big project and why do you want to join CT and why did you leave your last company.\n\nThe process took a complete day and was on a Saturday. Hope this post helps someone, like others have helped me.",
+#       "published_at": "2026-02-11T15:02:06.667317+00:00",
+#       "scraped_at": "2026-02-11T15:30:00Z",
+#       "scrape_type": "bulk",
+#       "scrape_batch_id": "2026-02-11_bulk",
+#       "source_metadata": {
+#         "topic_id": "7571535",
+#         "slug": "cleartrip-flipkart-sde3-interview-experi-yjlk",
+#         "tags": [
+#           "Interview"
+#         ],
+#         "tag_slugs": [
+#           "interview"
+#         ],
+#         "company": "Flipkart",
+#         "author_username": "yash_10",
+#         "hit_count": 27,
+#         "comment_count": 0,
+#         "reactions": {
+#           "UPVOTE": 1
+#         },
+#         "created_at": "2026-02-11T15:02:06.667317+00:00",
+#         "updated_at": "2026-02-11T15:04:46.141895+00:00",
+#         "comments": []
+#       },
+#       "content_hash": "e0ef84b94941d43ace566dd5add8e9c127563fb07cab4b54858dd10a536a0250"
+#     }
+#
+#
+#     doc = content_normalizer.process(doc)
+#     doc = pii_remover.process(doc)
+#     doc = quality_filter.process(doc)
+#
+#     # from preprocessing.steps.deduplicator import Deduplicator
+#     # # At pipeline start — load existing hashes from DB
+#     # # existing = {row.content_hash for row in db.query("SELECT content_hash_exact FROM processed_documents")}
+#     # existing = {"e9fbc11657ac125b1dcb6f2bb5dda80ffb894dafd944d07be8f32d8a84cf91ba"}
+#     # dedup = Deduplicator(
+#     #     existing_hashes=existing,
+#     #     # state_dir="/tmp/pipeline_state"
+#     # )
+#     # # After batch
+#     # surviving_docs = dedup.process(doc)
+#     # dedup.save_state()
+#
+#     from preprocessing.steps.entity_extractor import EntityExtractor
+#     entity_extractor = EntityExtractor()
+#     doc = entity_extractor.process(doc)
+#     print(doc)
+#
+#
+#     def get_all_keys(d):
+#         keys = []
+#
+#         def recurse(obj):
+#             if isinstance(obj, dict):
+#                 for k, v in obj.items():
+#                     keys.append(k)
+#                     recurse(v)
+#             elif isinstance(obj, list):
+#                 for item in obj:
+#                     recurse(item)
+#
+#         recurse(d)
+#         return keys
+#     print(get_all_keys(doc))
