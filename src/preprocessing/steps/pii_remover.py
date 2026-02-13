@@ -123,6 +123,8 @@ class PIIRemover(PreprocessingStep):
                 f"PII found: {pii_counts}"
             )
 
+        doc["preprocessing_steps"]["2_pii_remover"] = True
+
         return doc
 
     def _regex_scrub(self, text: str) -> Tuple[str, Dict[str, int]]:
