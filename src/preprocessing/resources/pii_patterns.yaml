@@ -1,0 +1,121 @@
+# ═══════════════════════════════════════════════════
+# PII Removal Patterns
+#
+# All regex patterns for detecting and redacting PII.
+# Edit patterns here — no code changes needed.
+#
+# Pattern format:
+#   pattern:      Python regex string
+#   placeholder:  Replacement text (e.g., "[EMAIL]")
+#   type:         PII category key (used in pii_counts)
+#   flags:        List of re flag names [IGNORECASE, MULTILINE]
+#
+# NER config at the bottom controls spaCy behavior.
+#
+# ORDER MATTERS: Patterns are applied top-to-bottom.
+# More specific patterns (e.g., personal URLs) should come
+# before generic ones (e.g., general URLs) to avoid
+# partial redaction.
+# ═══════════════════════════════════════════════════
+
+
+patterns:
+
+  # ─── Email Addresses ──────────────────────────────
+  - pattern: "[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}"
+    placeholder: "[EMAIL]"
+    type: "email"
+
+  # ─── Phone Numbers ────────────────────────────────
+  # Indian formats: +91-9876543210, 091 98765 43210, 9876543210
+  - pattern: "(?:\\+?91[\\s\\-]?)?(?:0?\\d{2,4}[\\s\\-]?)?\\d{5}[\\s\\-]?\\d{5}"
+    placeholder: "[PHONE]"
+    type: "phone"
+
+  # US/International: +1 (555) 123-4567, 555-123-4567, (555) 123 4567
+  - pattern: "(?:\\+?1[\\s\\-]?)?\\(?\\d{3}\\)?[\\s.\\-]?\\d{3}[\\s.\\-]?\\d{4}"
+    placeholder: "[PHONE]"
+    type: "phone"
+
+  # Generic international: +44 20 7946 0958, +61-2-1234-5678
+  - pattern: "\\+\\d{1,3}[\\s\\-]?\\d[\\s\\-\\d]{6,14}"
+    placeholder: "[PHONE]"
+    type: "phone"
+
+  # ─── Personal URLs (before generic URL removal) ───
+  # LinkedIn profiles: linkedin.com/in/username
+  - pattern: "(?:https?://)?(?:www\\.)?linkedin\\.com/in/[\\w\\-.]+"
+    placeholder: "[PERSONAL_URL]"
+    type: "personal_url"
+    flags: ["IGNORECASE"]
+
+  # GitHub profiles: github.com/username (but not github.com/org/repo paths)
+  - pattern: "(?:https?://)?(?:www\\.)?github\\.com/[\\w\\-]+(?:/[\\w\\-.]+)?(?=\\s|$|[),;])"
+    placeholder: "[PERSONAL_URL]"
+    type: "personal_url"
+    flags: ["IGNORECASE"]
+
+  # Twitter/X profiles: twitter.com/username, x.com/username
+  - pattern: "(?:https?://)?(?:www\\.)?(?:twitter|x)\\.com/[\\w\\-]+"
+    placeholder: "[PERSONAL_URL]"
+    type: "personal_url"
+    flags: ["IGNORECASE"]
+
+  # Instagram
+  - pattern: "(?:https?://)?(?:www\\.)?instagram\\.com/[A-Za-z0-9_.]+/?"
+    placeholder: "[PERSONAL_URL]"
+    type: "personal_url"
+    flags: [ "IGNORECASE" ]
+
+  # Facebook (profile URLs only, not pages/groups)
+  - pattern: "(?:https?://)?(?:www\\.)?facebook\\.com/[A-Za-z0-9.]+/?"
+    placeholder: "[PERSONAL_URL]"
+    type: "personal_url"
+    flags: [ "IGNORECASE" ]
+
+  # LeetCode user profile only
+  - pattern: "(?:https?://)?(?:www\\.)?leetcode\\.com/u/[A-Za-z0-9_\\-]+/?"
+    placeholder: "[PERSONAL_URL]"
+    type: "personal_url"
+    flags: [ "IGNORECASE" ]
+
+
+  # ─── ID Numbers ───────────────────────────────────
+  # Aadhaar (India): 1234 5678 9012 (12 digits, often space-separated)
+  - pattern: "\\b\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}\\b"
+    placeholder: "[ID_NUMBER]"
+    type: "id_number"
+
+  # SSN (US): 123-45-6789
+  - pattern: "\\b\\d{3}[\\-]\\d{2}[\\-]\\d{4}\\b"
+    placeholder: "[ID_NUMBER]"
+    type: "id_number"
+
+  # PAN (India): ABCDE1234F (5 letters, 4 digits, 1 letter)
+  - pattern: "\\b[A-Z]{5}\\d{4}[A-Z]\\b"
+    placeholder: "[ID_NUMBER]"
+    type: "id_number"
+
+  # ─── Usernames / Handles ──────────────────────────
+  # Reddit: u/username
+  - pattern: "\\bu/[\\w\\-]{3,20}\\b"
+    placeholder: "[USERNAME]"
+    type: "username"
+
+  # Twitter/social: @username (but not @Override, @param etc.)
+  - pattern: "(?<![\\w@])@(?!Override|param|return|throws|Autowired|Component|Service|Repository|Entity|Table)[a-zA-Z][\\w]{2,20}\\b"
+    placeholder: "[USERNAME]"
+    type: "username"
+
+  # ─── Mailing Addresses ────────────────────────────
+  # Indian PIN codes in address context: "Bangalore 560001" / "PIN: 560001"
+  - pattern: "(?:PIN|pin|Pincode|postal)[\\s:]*\\d{6}"
+    placeholder: "[ADDRESS]"
+    type: "address"
+    flags: ["IGNORECASE"]
+
+  # US ZIP codes in address context: "NY 10001" / "ZIP: 90210"
+  - pattern: "(?:ZIP|zip)[\\s:]*\\d{5}(?:\\-\\d{4})?"
+    placeholder: "[ADDRESS]"
+    type: "address"
+    flags: ["IGNORECASE"]
