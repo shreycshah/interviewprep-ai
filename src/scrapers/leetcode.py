@@ -2,7 +2,6 @@
 LeetCode Interview Experience Scraper (GCS-compatible)
 =====================================================
 Scrapes interview experiences from LeetCode Discuss GraphQL API.
-Matches the dev branch architecture: shared data models, config module, storage backend.
 
 Usage:
     from src.storage.gcs_backend import GCSBackend
@@ -37,31 +36,6 @@ class LeetCodeScraper:
     Accepts a StorageBackend for flexible output (local or GCS).
     """
 
-    # ── Known companies for extraction ──
-    SKIP_TAGS = frozenset({
-        "interview", "interview-experience", "interview-question",
-        "compensation", "system-design", "behavioral", "offer",
-        "rejected", "oa", "online-assessment", "career", "feedback",
-        "job-search-2", "hiring-freshers", "trending-2", "react",
-        "frontend", "full-stack", "backend", "trending",
-    })
-
-    KNOWN_COMPANIES = [
-        "Google", "Amazon", "Meta", "Facebook", "Microsoft", "Apple",
-        "Netflix", "Uber", "Lyft", "Airbnb", "Stripe", "Coinbase",
-        "Walmart", "Salesforce", "Oracle", "Adobe", "Nvidia", "Intel",
-        "Tesla", "Twitter", "LinkedIn", "Snap", "TikTok", "ByteDance",
-        "Atlassian", "Dropbox", "Spotify", "DoorDash", "Instacart",
-        "IBM", "Cisco", "VMware", "PayPal", "Square", "Block",
-        "Robinhood", "Palantir", "Snowflake", "Databricks", "MongoDB",
-        "Intuit", "Visa", "Mastercard", "Goldman Sachs", "JPMorgan",
-        "Morgan Stanley", "Deloitte", "Accenture", "TCS", "Infosys",
-        "Wipro", "Swiggy", "Zomato", "Flipkart", "Razorpay",
-        "Samsung", "Shopify", "Pinterest", "Reddit", "Discord",
-        "Applied Intuition", "Two Sigma", "Citadel", "DE Shaw",
-        "Jane Street", "HRT", "Tower Research",
-    ]
-
     def __init__(
         self,
         scrape_type: str = None,
@@ -81,7 +55,7 @@ class LeetCodeScraper:
             )
         self.storage = storage
 
-        # Storage paths (matches GFG pattern: raw/bulk/leetcode or raw/incremental/{date}/leetcode)
+        # Storage paths
         self.today_raw_prefix = self.config.get_raw_prefix(self.scrape_type)
 
         # HTTP session
@@ -286,11 +260,9 @@ class LeetCodeScraper:
             for comment in comments_data:
                 post = comment.get("post", {})
                 if post and not post.get("isHidden"):
-                    author_data = post.get("author") or {}
                     all_comments.append({
                         "id": comment.get("id"),
                         "content": self._clean_content(post.get("content", "")),
-                        "author": author_data.get("username", "anonymous"),
                         "created_at": post.get("creationDate"),
                         "vote_count": post.get("voteCount", 0),
                         "is_anonymous": post.get("anonymous", False),
@@ -329,7 +301,6 @@ class LeetCodeScraper:
         if not company:
             company = self._extract_company_from_title(title)
 
-        author = list_meta.get("author") or {}
         reactions = {
             r.get("reactionType", "UNKNOWN"): r.get("count", 0)
             for r in article.get("reactions", [])
@@ -351,7 +322,6 @@ class LeetCodeScraper:
                 "tags": tag_names,
                 "tag_slugs": tag_slugs,
                 "company": company,
-                "author_username": author.get("userName", "anonymous"),
                 "is_anonymous": list_meta.get("isAnonymous", True),
                 "hit_count": article.get("hitCount", 0),
                 "comment_count": (list_meta.get("topic") or {}).get("topLevelCommentCount", 0),
@@ -379,10 +349,10 @@ class LeetCodeScraper:
             if tag.get("tagType") == "COMPANY":
                 return tag.get("name")
 
-        known_lower = {c.lower(): c for c in self.KNOWN_COMPANIES}
+        known_lower = {c.lower(): c for c in self.config.KNOWN_COMPANIES}
         for tag in tags:
             slug = tag.get("slug", "").lower()
-            if slug in known_lower and slug not in self.SKIP_TAGS:
+            if slug in known_lower and slug not in self.config.SKIP_TAGS:
                 return known_lower[slug]
 
         return None
@@ -390,7 +360,7 @@ class LeetCodeScraper:
     def _extract_company_from_title(self, title: str) -> Optional[str]:
         """Fallback: extract company name from post title."""
         title_lower = title.lower()
-        for company in self.KNOWN_COMPANIES:
+        for company in self.config.KNOWN_COMPANIES:
             if company.lower() in title_lower:
                 return company
         return None
