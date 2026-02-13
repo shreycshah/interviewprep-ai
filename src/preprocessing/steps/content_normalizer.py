@@ -3,6 +3,7 @@ Step 1: Content Normalization
 
 Cleans raw scraped content into plain, uniform text.
 
+
 Pipeline order:
     1. Encoding fixes (HTML entities, mojibake, special chars)
     2. HTML tag stripping (BeautifulSoup)
