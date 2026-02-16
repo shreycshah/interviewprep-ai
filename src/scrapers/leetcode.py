@@ -56,7 +56,7 @@ class LeetCodeScraper:
         self.storage = storage
 
         # Storage paths
-        self.today_raw_prefix = self.config.get_raw_prefix(self.scrape_type)
+        self.today_raw_prefix = self.config.get_raw_prefix(self.batch_id)
 
         # HTTP session
         self.session = requests.Session()

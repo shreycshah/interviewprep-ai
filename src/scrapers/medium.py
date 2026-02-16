@@ -87,7 +87,7 @@ class MediumScraper:
         self.storage = storage
 
         # Build relative paths for this run
-        self.today_raw_prefix = self.config.get_raw_prefix(self.scrape_type)
+        self.today_raw_prefix = self.config.get_raw_prefix(self.batch_id)
 
         # Local log file
         self.log_dir = Path(log_dir or "./logs")
@@ -738,16 +738,16 @@ class MediumScraper:
 
 # ============== ENTRY POINT ==============
 # from src.storage.gcs_backend import GCSBackend
-
+#
 # if __name__ == "__main__":
 #     storage = GCSBackend(
 #         bucket_name="interviewprep-ai-data",
 #         project_id="professorbot-dovbsg",
 #         secret_name="gcs-service-account-key",
 #     )
-
+#
 #     config = MediumScraperConfigs()
-
+#
 #     scraper = MediumScraper(
 #         scrape_type=config.SCRAPE_TYPE,
 #         config=config,

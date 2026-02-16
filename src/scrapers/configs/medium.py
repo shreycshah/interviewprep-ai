@@ -44,7 +44,7 @@ class MediumScraperConfigs:
     RAW_PREFIX = "raw"
 
     # Test mode
-    MAX_SITEMAPS = 2  # Set to None to process all
+    MAX_SITEMAPS = None  # Set to None to process all
 
     @classmethod
     def get_today_str(cls) -> str:
@@ -56,8 +56,5 @@ class MediumScraperConfigs:
         return f"{cls.get_today_str()}_{suffix}"
 
     @classmethod
-    def get_raw_prefix(cls, scrape_type: str) -> str:
-        if scrape_type == "bulk":
-            return f"{cls.RAW_PREFIX}/bulk/medium"
-        else:
-            return f"{cls.RAW_PREFIX}/incremental/{cls.get_today_str()}/medium"
+    def get_raw_prefix(cls, batch_id: str) -> str:
+        return f"{cls.RAW_PREFIX}/{batch_id}/medium"
