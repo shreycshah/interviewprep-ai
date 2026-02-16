@@ -254,21 +254,21 @@ class EntityExtractor(PreprocessingStep):
         # ── Tier 1: Title regex patterns ──
         company = self._extract_company_from_title(title)
         if company:
-            print("Company extracted from title")
+            # print("Company extracted from title")
             return self._normalize_company(company)
 
         # ── Tier 2: Alias dictionary scan ──
         for text in [title, content[:500], content]:
             company = self._find_company_in_text(text)
             if company:
-                print("Company extracted from Alias dictionary scan")
+                # print("Company extracted from Alias dictionary scan")
                 return company  # Already normalized by alias lookup
 
         # ── Tier 3: spaCy ORG NER (title + first 500 chars only) ──
         if self._ner_enabled:
             company = self._extract_company_via_ner(title, content[:500])
             if company:
-                print("Company extracted from spaCy ORG NER")
+                # print("Company extracted from spaCy ORG NER")
                 return self._normalize_company(company)
 
         return None
