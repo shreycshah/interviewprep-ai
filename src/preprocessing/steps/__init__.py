@@ -9,7 +9,7 @@ step registry. Adding a new step requires:
     4. Add it to pipeline_config.yaml
 """
 
-from src.preprocessing.pipeline import register_step
+from src.preprocessing.registry import register_step
 
 from src.preprocessing.steps.content_normalizer import ContentNormalizer
 from src.preprocessing.steps.pii_remover import PIIRemover

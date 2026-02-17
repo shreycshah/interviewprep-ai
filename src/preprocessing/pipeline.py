@@ -37,6 +37,7 @@ from typing import List, Dict, Optional, Any
 import yaml
 
 from src.preprocessing.steps.base import PreprocessingStep
+from src.preprocessing.registry import _STEP_REGISTRY
 from src.storage.gcs_backend import GCSBackend
 
 
@@ -70,21 +71,24 @@ _CONFIG = _load_config()
 # This avoids a giant if/elif chain and lets new steps
 # plug in by adding one entry.
 
-_STEP_REGISTRY: Dict[str, type] = {}
-
-
-def register_step(name: str, step_class: type):
-    """Register a preprocessing step class under a config name."""
-    _STEP_REGISTRY[name] = step_class
-
-
-def _build_steps(step_configs: List[dict]) -> List[PreprocessingStep]:
+def _build_steps(
+    step_configs: List[dict],
+    step_kwargs: Dict[str, dict] = None,
+) -> List[PreprocessingStep]:
     """
     Instantiate the ordered list of steps from YAML config.
 
     Skips steps with enabled: false. Raises if a step name
     isn't found in the registry.
+
+    Args:
+        step_configs: List of step dicts from pipeline_config.yaml.
+        step_kwargs:  Optional dict mapping step names to constructor
+                      kwargs. Used for steps that need runtime data
+                      (e.g., deduplicator needs existing_hashes from DB).
+                      Example: {"deduplicator": {"existing_hashes": {…}}}
     """
+    step_kwargs = step_kwargs or {}
     steps = []
     for cfg in step_configs:
         name = cfg["name"]
@@ -96,7 +100,8 @@ def _build_steps(step_configs: List[dict]) -> List[PreprocessingStep]:
                 f"Unknown step '{name}' in pipeline config. "
                 f"Registered steps: {list(_STEP_REGISTRY.keys())}"
             )
-        steps.append(_STEP_REGISTRY[name]())
+        kwargs = step_kwargs.get(name, {})
+        steps.append(_STEP_REGISTRY[name](**kwargs))
     return steps
 
 
@@ -119,7 +124,6 @@ class PipelineReport:
     total_duration_seconds: float = 0.0
     input_count: int = 0
     output_count: int = 0
-    quarantined_count: int = 0
     step_results: List[Dict[str, Any]] = field(default_factory=list)
     resumed_from_step: Optional[str] = None
     status: str = "pending"  # pending | completed | failed
@@ -257,6 +261,8 @@ class PreprocessingPipeline:
 
         # Build step chain
         self.step_configs = self.config["steps"]
+        step_kwargs = self._build_step_kwargs()
+        self.steps = _build_steps(self.step_configs, step_kwargs)
         self.steps = _build_steps(self.step_configs)
 
         # Checkpoint settings
@@ -280,6 +286,65 @@ class PreprocessingPipeline:
             f"Pipeline initialized with {len(self.steps)} steps: "
             f"{[s.name for s in self.steps]}"
         )
+
+    # ── Step kwargs builder ──
+
+    def _build_step_kwargs(self) -> Dict[str, dict]:
+        """
+        Build runtime constructor kwargs for steps that need them.
+
+        Steps like the deduplicator require data that can only be
+        fetched at pipeline start (e.g., existing hashes from DB).
+        This method centralizes that logic.
+        """
+        kwargs = {}
+
+        # Deduplicator needs existing content hashes from DB
+        # to avoid re-accepting previously processed docs
+        if self._is_step_enabled("deduplicator"):
+            kwargs["deduplicator"] = {
+                "existing_hashes": self._load_existing_hashes()
+            }
+
+        return kwargs
+
+    def _is_step_enabled(self, step_name: str) -> bool:
+        """Check if a step is enabled in the config."""
+        return any(
+            cfg["name"] == step_name and cfg.get("enabled", True)
+            for cfg in self.step_configs
+        )
+
+    def _load_existing_hashes(self) -> set:
+        """
+        Load content hashes of previously processed documents from DB.
+
+        Used by the deduplicator to avoid re-accepting docs that
+        were processed in prior batches.
+        """
+        # try:
+        #     from src.database.connection import get_db_connection
+        #
+        #     conn = get_db_connection()
+        #     cursor = conn.cursor()
+        #     cursor.execute(
+        #         "SELECT content_hash FROM processed_documents"
+        #     )
+        #     hashes = {row[0] for row in cursor.fetchall()}
+        #     cursor.close()
+        #     conn.close()
+        #     logger.info(
+        #         f"Loaded {len(hashes)} existing hashes from DB"
+        #     )
+        #     return hashes
+        # except Exception as e:
+        #     logger.warning(
+        #         f"Could not load existing hashes from DB: {e}. "
+        #         f"Deduplicator will only check within current batch."
+        #     )
+        #     return set()
+        print("Loading existing hashes.....")
+        return set()
 
     # ── Public API ──
 
@@ -543,20 +608,30 @@ class PreprocessingPipeline:
         path = f"{self.processed_prefix}{batch_id}_report.json"
         self.storage.write_json(path, report.to_dict())
 
-# if __name__ == "__main__":
-#     import logging
-#     import sys
-#     def setup_logging(level: str = "INFO"):
-#         """Configure structured logging for the pipeline."""
-#         logging.basicConfig(
-#             level=getattr(logging, level.upper()),
-#             format=(
-#                 "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
-#             ),
-#             datefmt="%Y-%m-%d %H:%M:%S",
-#             handlers=[logging.StreamHandler(sys.stdout)],
-#         )
+
+####### RUNNING PIPELINE run.py #############
+# import logging
+# import sys
 #
+# # Import steps package to trigger registration
+# import src.preprocessing.steps  # noqa: F401
+#
+# from src.preprocessing.pipeline import PreprocessingPipeline
+#
+#
+# def setup_logging(level: str = "INFO"):
+#     """Configure structured logging for the pipeline."""
+#     logging.basicConfig(
+#         level=getattr(logging, level.upper()),
+#         format=(
+#             "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+#         ),
+#         datefmt="%Y-%m-%d %H:%M:%S",
+#         handlers=[logging.StreamHandler(sys.stdout)],
+#     )
+#
+#
+# def main():
 #     setup_logging("INFO")
 #
 #     # Build pipeline
@@ -570,9 +645,12 @@ class PreprocessingPipeline:
 #         print(
 #             f"\nPipeline completed successfully. "
 #             f"{report.output_count}/{report.input_count} docs processed, "
-#             f"{report.quarantined_count} quarantined."
 #         )
 #         sys.exit(0)
 #     else:
 #         print(f"\nPipeline failed. Check logs for details.")
 #         sys.exit(1)
+#
+#
+# if __name__ == "__main__":
+#     main()

@@ -171,7 +171,7 @@ class Deduplicator(PreprocessingStep):
         # ── Unique — register hash and pass through ──
         self._exact_hashes.add(content_hash)
 
-        doc["preprocessing"]["deduplicator"]["content_hash_exact"] = content_hash
+        doc["preprocessing"]["deduplicator"]["content_hash"] = content_hash
         doc["preprocessing"]["deduplicator"]["completed"] = True
 
         return doc
