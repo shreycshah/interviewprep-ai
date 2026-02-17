@@ -8,7 +8,20 @@ VALID_PLATFORMS: Set[str] = {"leetcode", "geeksforgeeks", "medium"}
 VALID_EXPERIENCE: Set[str] = {"intern", "entry", "mid", "senior", "staff", "unknown"}
 VALID_OUTCOMES: Set[str] = {"offer", "reject", "pending", "unknown"}
 VALID_DIFFICULTY: Set[str] = {"easy", "medium", "hard", "unknown"}
-VALID_INTERVIEW_TYPES: Set[str] = {"phone_screen", "onsite", "online_assessment", "virtual", "on_campus", "off_campus", "walk_in"}
+VALID_INTERVIEW_TYPES: Set[str] = {
+    "phone_screen", "onsite", "online_assessment",
+    "virtual", "on_campus", "off_campus", "walk_in",
+}
+
+# ── Platform alias mapping ──
+PLATFORM_NORMALIZE: Dict[str, str] = {
+    "leetcode": "leetcode",
+    "lc": "leetcode",
+    "geeksforgeeks": "geeksforgeeks",
+    "gfg": "geeksforgeeks",
+    "medium": "medium",
+}
+
 
 @dataclass(frozen=True)
 class ProcessedInterviewDocument:
@@ -16,8 +29,9 @@ class ProcessedInterviewDocument:
     Fully processed interview document ready for persistence
     in the processed_documents table.
 
-    This represents post-normalization, post-PII removal,
-    and post-entity extraction data.
+    All validation, normalization, and defaulting happens inside
+    __post_init__ so that construction itself is the single
+    validation gate.
     """
 
     # ── Identity & Lineage ──
@@ -31,14 +45,14 @@ class ProcessedInterviewDocument:
     content: str
     word_count: int
 
-    # ── Extracted Entities ──
-    company: Optional[str] = None
-    role: Optional[str] = None
-    experience_level: str = "unknown"
+    # ── Extracted Entities (required) ──
+    company: str
+    role: str
+    experience_level: str = None
 
     # ── Extracted Structure ──
-    interview_outcome: str = "unknown"
-    difficulty: str = "unknown"
+    interview_outcome: str = None
+    difficulty: str = None
     num_rounds: Optional[int] = None
     interview_types: List[str] = field(default_factory=list)
 
@@ -55,32 +69,91 @@ class ProcessedInterviewDocument:
     source_metadata: Dict = field(default_factory=dict)
 
     def __post_init__(self):
-        """Validate enum fields after init (works with frozen via object.__setattr__)."""
-        self._validate_enum("source_platform", self.source_platform, VALID_PLATFORMS)
-        self._validate_enum("experience_level", self.experience_level, VALID_EXPERIENCE)
-        self._validate_enum("interview_outcome", self.interview_outcome, VALID_OUTCOMES)
-        self._validate_enum("difficulty", self.difficulty, VALID_DIFFICULTY)
+        """Validate required fields, normalize enums, set defaults."""
 
-        for it in self.interview_types:
-            self._validate_enum("interview_types", it, VALID_INTERVIEW_TYPES)
+        # ── 1. Required field validation ──
+        required_fields = {
+            "document_id": self.document_id,
+            "source_platform": self.source_platform,
+            "source_url": self.source_url,
+            "content_hash": self.content_hash,
+            "title": self.title,
+            "content": self.content,
+            "company": self.company,
+            "role": self.role,
+        }
+        missing = [
+            name for name, value in required_fields.items()
+            if not value or not str(value).strip()
+        ]
+        if missing:
+            raise ValueError(
+                f"Required field(s) cannot be None or empty: {missing}."
+            )
 
-        # Auto-set processed_at if not provided
+        # ── 2. Normalize platform (alias → canonical) then validate ──
+        object.__setattr__(
+            self, "source_platform",
+            self._normalize_platform(self.source_platform),
+        )
+        if self.source_platform not in VALID_PLATFORMS:
+            raise ValueError(
+                f"Invalid source_platform: '{self.source_platform}'. "
+                f"Must be one of {VALID_PLATFORMS}"
+            )
+
+        # ── 3. Safe-enum normalization (invalid → default) ──
+        object.__setattr__(
+            self, "experience_level",
+            self._safe_enum(self.experience_level, VALID_EXPERIENCE, None),
+        )
+        object.__setattr__(
+            self, "interview_outcome",
+            self._safe_enum(self.interview_outcome, VALID_OUTCOMES, None),
+        )
+        object.__setattr__(
+            self, "difficulty",
+            self._safe_enum(self.difficulty, VALID_DIFFICULTY, None),
+        )
+
+        # ── 4. Filter interview_types to valid values only ──
+        object.__setattr__(
+            self, "interview_types",
+            [
+                t for val in self.interview_types
+                if (t := self._safe_enum(val, VALID_INTERVIEW_TYPES, None)) is not None
+            ],
+        )
+
+        # ── 5. Auto-set preprocessed_at if not provided ──
         if self.preprocessed_at is None:
-            object.__setattr__(self, "preprocessed_at", datetime.now(timezone.utc))
+            object.__setattr__(
+                self, "preprocessed_at",
+                datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            )
+
+    # ── Helper methods ──
 
     @staticmethod
-    def _validate_enum(field_name: str, value: str, valid: Set[str]):
-        if value not in valid:
-            raise ValueError(f"Invalid {field_name}: '{value}'. Must be one of {valid}")
+    def _safe_enum(value, valid_set: Set[str], default):
+        """Normalize enum value: lowercase + strip, fallback to default."""
+        if value is None:
+            return default
+        cleaned = str(value).lower().strip()
+        return cleaned if cleaned in valid_set else default
+
+    @staticmethod
+    def _normalize_platform(raw: str) -> str:
+        """Map platform aliases to canonical names."""
+        return PLATFORM_NORMALIZE.get(raw.lower().strip(), raw.lower().strip())
+
+    # ── Serialization ──
 
     def to_dict(self) -> Dict:
         """Convert to dictionary suitable for DB insertion."""
         data = asdict(self)
-
-        # Ensure preprocessed_at default behavior matches DB
         if not data["preprocessed_at"]:
             data["preprocessed_at"] = self.now_iso()
-
         return data
 
     def to_json(self) -> str:
@@ -101,45 +174,3 @@ class ProcessedInterviewDocument:
     def now_iso() -> str:
         """Return current UTC timestamp in ISO 8601 format."""
         return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-# '''
-# -- ============================================================
-# -- CORE TABLE: Processed Interview Documents
-# -- ============================================================
-#
-# CREATE TABLE processed_documents (
-#     -- ── Identity & Lineage ──
-#     document_id         TEXT PRIMARY KEY,           -- e.g. "geeksforgeeks_<sha256>"
-#     source_platform     source_platform_enum NOT NULL,
-#     source_url          TEXT NOT NULL UNIQUE,
-#     content_hash        TEXT NOT NULL,              -- SHA256 of normalized content, for dedup
-#
-#     -- ── Content ──
-#     title               TEXT NOT NULL,
-#     cleaned_content     TEXT NOT NULL,              -- After normalization + PII scrubbing
-#     word_count          INTEGER NOT NULL,
-#
-#     -- ── Extracted Entities ──
-#     company             TEXT,                       -- Normalized name ("Microsoft", not "MSFT")
-#     role                TEXT,                       -- e.g. "Software Engineer", "Data Scientist"
-#     experience_level    experience_level_enum NOT NULL DEFAULT 'unknown',
-#
-#     -- ── Extracted Structure ──
-#     interview_outcome   interview_outcome_enum NOT NULL DEFAULT 'unknown',
-#     difficulty          difficulty_enum NOT NULL DEFAULT 'unknown',
-#     num_rounds          INTEGER,                    -- Number of interview rounds mentioned
-#     interview_types     TEXT[],                     -- e.g. {"phone_screen", "onsite", "oa"}
-#
-#     -- ── Topics ──
-#     topics              TEXT[],                     -- e.g. {"dsa", "system_design", "behavioral"}
-#
-#     -- ── Timestamps ──
-#     published_at        TIMESTAMPTZ,                -- Original publish date (nullable, not always available)
-#     scraped_at          TIMESTAMPTZ NOT NULL,       -- When the scraper collected it
-#     preprocessed_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),  -- When preprocessing completed
-#
-#     -- ── Scrape Lineage ──
-#     scrape_batch_id     TEXT NOT NULL,
-#     source_metadata     JSONB DEFAULT '{}',         -- Platform-specific fields (upvotes, tags, etc.)
-# );
-# '''
