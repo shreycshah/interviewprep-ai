@@ -14,7 +14,7 @@ class GFGScraperConfigs:
 
     # Relative paths within storage (no more absolute Path references)
     RAW_PREFIX = "raw"
-    # MANIFESTS_PREFIX = "manifests"
+    MANIFESTS_PREFIX = "manifests/gfg"
 
     @classmethod
     def get_today_str(cls) -> str:

@@ -16,6 +16,7 @@ from datetime import date, datetime
 from src.storage.storage_backend import StorageBackend
 from src.scrapers.configs.medium import MediumScraperConfigs
 from src.data_models.scraped_document import ScrapedInterviewDocument
+from src.data_models.scraping_manifest import Manifest
 
 
 """Utility functions for web scraping."""
@@ -88,6 +89,7 @@ class MediumScraper:
 
         # Build relative paths for this run
         self.today_raw_prefix = self.config.get_raw_prefix(self.batch_id)
+        self.manifests_prefix = self.config.MANIFESTS_PREFIX
 
         # Local log file
         self.log_dir = Path(log_dir or "./logs")
@@ -681,9 +683,35 @@ class MediumScraper:
 
         if self.stats['errors']['http_403_forbidden'] > 0:
             print(f"\nWARNING: {self.stats['errors']['http_403_forbidden']} articles blocked (403)")
-            
+
         print(f"\nFull log: {self.log_file}")
         print("=" * 60)
+
+    # ─────────── Manifest ───────────
+    def _create_manifest(self, started_at: str) -> Manifest:
+        total_errors = sum(self.stats["errors"].values())
+
+        manifest = Manifest(
+            scrape_date=self.config.get_today_str(),
+            scrape_type=self.scrape_type,
+            started_at=started_at,
+            completed_at=ScrapedInterviewDocument.now_iso(),
+            sources={
+                "medium": {
+                    "files_collected": self.stats["success"],
+                    "paywalled_skipped": self.stats["paywalled"],
+                    "total_urls": self.stats["total"],
+                    "errors": self.stats["errors"],
+                    "total_errors": total_errors,
+                }
+            },
+            total_files=self.stats["success"],
+        )
+
+        manifest_path = f"{self.manifests_prefix}/scrape_{self.config.get_today_str()}.json"
+        manifest.save(self.storage, manifest_path)
+        print(f"\nManifest saved to {manifest_path}")
+        return manifest
 
     # ========================================================================
     # MAIN RUN METHOD
@@ -698,6 +726,7 @@ class MediumScraper:
         print(f"Batch ID: {self.batch_id}")
 
         start_time = datetime.now()
+        started_at = start_time.isoformat() + "Z"
 
         # Fetch main sitemap
         self.logger.info("Fetching main sitemap...")
@@ -724,6 +753,9 @@ class MediumScraper:
 
         # Scrape all articles
         self.scrape_all_articles(interview_urls)
+
+        # Save manifest
+        manifest = self._create_manifest(started_at)
 
         # Print summary
         end_time = datetime.now()

@@ -55,17 +55,7 @@ class GFGScraper:
 
         # Build relative paths for this run
         self.today_raw_prefix = self.config.get_raw_prefix(self.batch_id)
-        # self.manifests_prefix = self.config.MANIFESTS_PREFIX
-
-        # Session setup
-        # self.session = requests.Session()
-        # self.session.headers.update({
-        #     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        #     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        #     "Accept-Language": "en-US,en;q=0.5",
-        #     "Accept-Encoding": "gzip, deflate, br",
-        #     "Connection": "keep-alive",
-        # })
+        self.manifests_prefix = self.config.MANIFESTS_PREFIX
 
         self.session = requests.Session()
         self.session.headers.update({
@@ -331,36 +321,36 @@ class GFGScraper:
         path = f"{self.today_raw_prefix}/{doc.document_id}.json"
         self.storage.write_json(path, doc.to_dict())
 
-    # # ─────────── Manifest ───────────
-    # def _create_manifest(self, sitemaps: List[SitemapInfo], started_at: str) -> Manifest:
-    #     latest_lastmod = None
-    #     if sitemaps:
-    #         latest_lastmod = max(
-    #             (s.lastmod for s in sitemaps if s.lastmod), default=None
-    #         )
-    #
-    #     manifest = Manifest(
-    #         scrape_date=self.config.get_today_str(),
-    #         scrape_type=self.scrape_type,
-    #         started_at=started_at,
-    #         completed_at=ScrapedInterviewDocument.now_iso(),
-    #         sources={
-    #             "gfg": {
-    #                 "files_collected": self.stats["files_collected"],
-    #                 "sitemaps_processed": self.stats["sitemaps_processed"],
-    #                 "urls_found": self.stats["urls_found"],
-    #                 "errors": self.stats["errors"],
-    #                 "error_urls": self.stats["error_urls"][:10],
-    #             }
-    #         },
-    #         total_files=self.stats["files_collected"],
-    #         last_sitemap_lastmod=latest_lastmod,
-    #     )
-    #
-    #     manifest_path = f"{self.manifests_prefix}/scrape_{self.config.get_today_str()}.json"
-    #     manifest.save(self.storage, manifest_path)
-    #     print(f"\nManifest saved to {manifest_path}")
-    #     return manifest
+    # ─────────── Manifest ───────────
+    def _create_manifest(self, sitemaps: List[SitemapInfo], started_at: str) -> Manifest:
+        latest_lastmod = None
+        if sitemaps:
+            latest_lastmod = max(
+                (s.lastmod for s in sitemaps if s.lastmod), default=None
+            )
+
+        manifest = Manifest(
+            scrape_date=self.config.get_today_str(),
+            scrape_type=self.scrape_type,
+            started_at=started_at,
+            completed_at=ScrapedInterviewDocument.now_iso(),
+            sources={
+                "gfg": {
+                    "files_collected": self.stats["files_collected"],
+                    "sitemaps_processed": self.stats["sitemaps_processed"],
+                    "urls_found": self.stats["urls_found"],
+                    "errors": self.stats["errors"],
+                    "error_urls": self.stats["error_urls"][:10],
+                }
+            },
+            total_files=self.stats["files_collected"],
+            last_sitemap_lastmod=latest_lastmod,
+        )
+
+        manifest_path = f"{self.manifests_prefix}/scrape_{self.config.get_today_str()}.json"
+        manifest.save(self.storage, manifest_path)
+        print(f"\nManifest saved to {manifest_path}")
+        return manifest
 
     # ─────────── Main Entry Point ───────────
     def run(self):
@@ -389,7 +379,7 @@ class GFGScraper:
             return
 
         documents = self._scrape_articles(urls)
-        # manifest = self._create_manifest(sitemaps, started_at)
+        manifest = self._create_manifest(sitemaps, started_at)
 
         end_time = datetime.now()
         delta = end_time - start_time
