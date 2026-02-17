@@ -54,7 +54,7 @@ class GFGScraper:
         self.storage = storage
 
         # Build relative paths for this run
-        self.today_raw_prefix = self.config.get_raw_prefix(self.scrape_type)
+        self.today_raw_prefix = self.config.get_raw_prefix(self.batch_id)
         # self.manifests_prefix = self.config.MANIFESTS_PREFIX
 
         # Session setup

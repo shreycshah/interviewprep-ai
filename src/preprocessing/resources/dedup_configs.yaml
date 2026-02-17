@@ -1,0 +1,50 @@
+# ═══════════════════════════════════════════════════
+# Deduplication Configuration
+# ═══════════════════════════════════════════════════
+
+
+# ─── Tier 1: Exact Deduplication ───────────────────
+# SHA256 hash on normalized (lowercased, whitespace-collapsed)
+# cleaned_content. Catches verbatim reposts.
+
+exact:
+  # Hash algorithm. SHA256 is the default — good collision
+  # resistance with reasonable performance.
+  algorithm: "sha256"
+
+
+# ─── Tier 2: Near Deduplication (MinHash + LSH) ────
+# Catches paraphrased or lightly edited cross-platform
+# reposts using Jaccard similarity estimation.
+
+lsh:
+  # Jaccard similarity threshold above which two documents
+  # are considered near-duplicates.
+  #
+  # 0.80 = 80% similar shingle overlap → near-duplicate.
+  # This is a good default for interview content:
+  #   - 0.90+ is too strict — misses cross-platform reposts
+  #     with minor edits (added intro, formatting changes)
+  #   - 0.70 is too loose — catches topically similar but
+  #     genuinely different interview experiences at the
+  #     same company
+  similarity_threshold: 0.80
+
+  # Number of MinHash permutation functions.
+  # Higher = more accurate similarity estimation, slower.
+  #   - 64:  fast, rougher estimates
+  #   - 128: good balance (recommended)
+  #   - 256: very accurate, slower
+  num_perm: 128
+
+  # Word n-gram (shingle) size.
+  # Larger shingles = more sensitive to word-level changes.
+  #   - 2: too small, high false positive rate
+  #   - 3: good for medium-length interview texts
+  #   - 5: better for long documents, misses shorter overlaps
+  shingle_size: 3
+
+  # Minimum number of shingles required to run near-dedup.
+  # Very short documents produce unreliable MinHash signatures.
+  # Documents below this threshold only get exact dedup.
+  min_shingles: 10

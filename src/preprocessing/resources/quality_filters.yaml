@@ -1,0 +1,187 @@
+# ═══════════════════════════════════════════════════
+# Quality Filter Configuration
+#
+# Controls which documents pass through to downstream
+# preprocessing steps. Edit thresholds and keywords
+# here — no code changes needed.
+# ═══════════════════════════════════════════════════
+
+
+# ─── Thresholds ────────────────────────────────────
+
+thresholds:
+  # Minimum word count to keep a document.
+  # Interview experiences shorter than this are usually
+  # incomplete fragments, navigation text, or scrape errors.
+  min_word_count: 50
+
+  # Maximum word count. Documents exceeding this are likely
+  # scraping errors (e.g., entire page dumps with sidebars,
+  # comments sections, or multiple articles concatenated).
+  max_word_count: 15000
+
+  # Minimum fraction of words that must be interview-related
+  # signal keywords. Documents below this threshold are likely
+  # off-topic pages that matched scraper URLs but aren't
+  # actual interview experiences.
+  # 0.02 = at least 2% of words must be signal keywords.
+  min_signal_ratio: 0.02
+
+
+# ─── Language Detection ────────────────────────────
+
+language:
+  # Allowed language codes (ISO 639-1).
+  # Documents detected as other languages are filtered out.
+  allowed:
+    - "en"
+
+  # Minimum character count to run language detection.
+  # Short texts produce unreliable detection results —
+  # skip detection and assume English below this threshold.
+  min_chars_for_detection: 50
+
+
+# ─── Error / Junk Page Patterns ────────────────────
+# Regex patterns that indicate a scraped page is an error
+# page, login wall, or removed content — not real interview data.
+# Matched against first 500 chars of cleaned content.
+
+error_page_patterns:
+  - pattern: "404\\s*(not\\s+found|error|page)"
+  - pattern: "403\\s*(forbidden|access\\s+denied)"
+  - pattern: "access\\s+denied"
+  - pattern: "page\\s+(not\\s+found|has\\s+been\\s+removed|no\\s+longer\\s+exists)"
+  - pattern: "this\\s+(content|article|page)\\s+(is|has\\s+been)\\s+(unavailable|removed|deleted)"
+  - pattern: "you\\s+(need|must)\\s+to\\s+(log\\s*in|sign\\s*in|be\\s+logged\\s+in)"
+  - pattern: "please\\s+(log\\s*in|sign\\s*in)\\s+to\\s+(view|access|continue)"
+  - pattern: "subscribe\\s+to\\s+(read|access|view)\\s+this"
+  - pattern: "this\\s+post\\s+(was|has\\s+been)\\s+deleted"
+  - pattern: "\\[removed\\]"
+  - pattern: "\\[deleted\\]"
+  - pattern: "502\\s+bad\\s+gateway"
+  - pattern: "503\\s+service\\s+unavailable"
+  - pattern: "something\\s+went\\s+wrong"
+  - pattern: "we\\s+couldn'?t\\s+find\\s+(this|that|the)\\s+page"
+
+
+# ─── Signal Keywords ───────────────────────────────
+# Words that indicate interview-relevant content.
+# Used to compute signal ratio — what fraction of the
+# document is actually about interviews vs. off-topic.
+#
+# These should be common words in interview experiences
+# across all platforms. Keep lowercase.
+
+signal_keywords:
+  # ── Interview process ──
+  - "interview"
+  - "interviewer"
+  - "interviewed"
+  - "round"
+  - "rounds"
+  - "technical"
+  - "screening"
+  - "phone"
+  - "onsite"
+  - "on-site"
+  - "virtual"
+  - "online"
+  - "offline"
+  - "campus"
+  - "on-campus"
+  - "off-campus"
+  - "walk-in"
+  - "aptitude"
+  - "assessment"
+  - "oa"
+  - "hiring"
+  - "shortlisted"
+  - "selected"
+  - "rejected"
+  - "ghosted"
+  - "offer"
+  - "placed"
+
+  # ── Question & answer context ──
+  - "asked"
+  - "question"
+  - "questions"
+  - "answer"
+  - "answered"
+  - "explained"
+  - "solved"
+  - "approach"
+  - "solution"
+  - "discuss"
+  - "discussed"
+
+  # ── Technical topics ──
+  - "coding"
+  - "dsa"
+  - "algorithm"
+  - "data"
+  - "structure"
+  - "array"
+  - "string"
+  - "tree"
+  - "graph"
+  - "dynamic"
+  - "programming"
+  - "recursion"
+  - "sorting"
+  - "searching"
+  - "sql"
+  - "dbms"
+  - "oops"
+  - "oop"
+  - "os"
+  - "networking"
+  - "system"
+  - "design"
+  - "api"
+  - "rest"
+
+  # ── Behavioral / HR ──
+  - "behavioral"
+  - "hr"
+  - "managerial"
+  - "resume"
+  - "introduction"
+  - "introduce"
+  - "strengths"
+  - "weaknesses"
+  - "project"
+  - "projects"
+  - "experience"
+  - "experiences"
+  - "role"
+  - "position"
+  - "salary"
+  - "compensation"
+  - "ctc"
+  - "stipend"
+
+  # ── Outcome ──
+  - "result"
+  - "results"
+  - "cleared"
+  - "passed"
+  - "failed"
+  - "accepted"
+  - "offered"
+  - "joined"
+  - "onboarding"
+
+  # ── Difficulty / preparation ──
+  - "easy"
+  - "medium"
+  - "hard"
+  - "difficult"
+  - "prepare"
+  - "preparation"
+  - "practice"
+  - "leetcode"
+  - "geeksforgeeks"
+  - "hackerrank"
+  - "codeforces"

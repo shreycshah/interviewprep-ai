@@ -155,13 +155,10 @@ class LeetCodeScraperConfigs:
         return f"{cls.get_today_str()}_{suffix}"
 
     @classmethod
-    def get_raw_prefix(cls, scrape_type: str) -> str:
+    def get_raw_prefix(cls, batch_id: str) -> str:
         """
         Returns the raw prefix based on scrape type:
         - bulk: raw/bulk/leetcode
         - incremental: raw/incremental/{date}/leetcode
         """
-        if scrape_type == "bulk":
-            return f"{cls.RAW_PREFIX}/bulk/leetcode"
-        else:
-            return f"{cls.RAW_PREFIX}/incremental/{cls.get_today_str()}/leetcode"
+        return f"{cls.RAW_PREFIX}/{batch_id}/leetcode"

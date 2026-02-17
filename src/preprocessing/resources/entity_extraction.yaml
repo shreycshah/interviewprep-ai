@@ -1,0 +1,928 @@
+# ═══════════════════════════════════════════════════
+# Entity Extraction Configuration
+#
+# All dictionaries, aliases, and keyword lists for
+# extracting structured fields from interview content.
+# Edit here — no code changes needed.
+#
+# Sections:
+#   company_aliases          → Canonical name: [aliases...]
+#   role_aliases             → Canonical role: [aliases...]
+#   level_keywords           → Seniority: [keywords...]  (ORDER MATTERS)
+#   interview_type_keywords  → Type: [keywords...]
+#   round_patterns           → Regex list for detecting round headers
+#   topic_keywords           → Topic: [keywords...]
+#   outcome_keywords         → Outcome: [keywords...]  (ORDER MATTERS)
+#   difficulty_keywords      → Level: [keywords...]  (ORDER MATTERS)
+# ═══════════════════════════════════════════════════
+
+
+# ─── Company Extraction Config ─────────────────────
+# 3-tier approach: title regex → alias dictionary → spaCy ORG NER
+
+company_extraction:
+
+  # Tier 1: Title regex patterns
+  # Named group (?P<company>...) captures the company name.
+  # These match common interview title formats across platforms.
+  # Order matters — more specific patterns first.
+  title_patterns:
+    # "Google Interview Experience for SDE"
+    # "IBM Interview Experience for Storage Intern"
+    - "^(?P<company>[\\w\\s.&\\-]+?)\\s+Interview\\s+Experience"
+
+    # "Interview Experience at Google"
+    # "My Interview Experience at IBM"
+    - "Interview\\s+Experience\\s+(?:at|with|for)\\s+(?P<company>[\\w\\s.&\\-]+?)\\s*(?:for|\\-|\\||$)"
+
+    # "My Google Interview" / "My Interview at IBM"
+    - "(?:My|The)\\s+(?:Interview\\s+(?:at|with)\\s+)?(?P<company>[\\w\\s.&\\-]+?)\\s+Interview"
+
+    # "SDE Interview at Google"
+    - "Interview\\s+(?:at|with)\\s+(?P<company>[\\w\\s.&\\-]+?)\\s*(?:\\||\\-|$)"
+
+    # "Interview Questions from Google" / "Google Hiring Process"
+    - "(?:Interview\\s+Questions\\s+(?:from|at)|Hiring\\s+Process\\s+(?:at|of))\\s+(?P<company>[\\w\\s.&\\-]+)"
+
+    # "Placed at Google" / "Selected at IBM"
+    - "(?:Placed|Selected|Hired)\\s+(?:at|by|in)\\s+(?P<company>[\\w\\s.&\\-]+)"
+
+  # Tier 3: spaCy ORG NER config
+  ner:
+    # spaCy model — only NER pipe is loaded
+    model: "en_core_web_sm"
+
+    # Blocklist: terms spaCy ORG NER commonly misclassifies.
+    # These are NOT companies — they're technologies, platforms,
+    # interview concepts, or generic terms that produce false
+    # positives in interview text context.
+    blocklist:
+      # ── Technologies / frameworks ──
+      - "python"
+      - "java"
+      - "javascript"
+      - "react"
+      - "angular"
+      - "node.js"
+      - "django"
+      - "flask"
+      - "spring"
+      - "spring boot"
+      - "docker"
+      - "kubernetes"
+      - "kafka"
+      - "redis"
+      - "hadoop"
+      - "spark"
+      - "terraform"
+      - "jenkins"
+      - "git"
+      - "linux"
+      - "windows"
+      - "macos"
+      - "android"
+      - "ios"
+
+      # ── Platforms / tools often misclassified ──
+      - "leetcode"
+      - "hackerrank"
+      - "hackerearth"
+      - "codeforces"
+      - "geeksforgeeks"
+      - "stackoverflow"
+      - "stack overflow"
+      - "github"
+      - "medium"
+      - "glassdoor"
+      - "naukri"
+      - "indeed"
+      - "zoom"
+      - "teams"
+      - "google meet"
+      - "webex"
+
+      # ── Interview / academic terms ──
+      - "dsa"
+      - "oop"
+      - "oops"
+      - "dbms"
+      - "sql"
+      - "nosql"
+      - "hr"
+      - "os"
+      - "api"
+      - "rest"
+      - "iit"
+      - "nit"
+      - "bits"
+
+      # ── Generic org-like terms ──
+      - "the company"
+      - "our college"
+      - "my college"
+      - "the team"
+      - "the firm"
+
+
+# ─── Company Aliases ───────────────────────────────
+# Format: Canonical Name: [list of aliases/shortforms]
+# Matching is case-insensitive. Longest match wins.
+# Add new companies and aliases as you encounter them.
+
+company_aliases:
+  Google:
+    - "google"
+    - "google llc"
+    - "google inc"
+    - "alphabet"
+    - "GOOG"
+  Amazon:
+    - "amazon"
+    - "amazon.com"
+    - "AMZN"
+  Amazon Web Services:
+    - "aws"
+    - "amazon web services"
+  Microsoft:
+    - "microsoft"
+    - "microsoft corp"
+    - "microsoft corporation"
+    - "MSFT"
+  Meta:
+    - "meta"
+    - "meta platforms"
+    - "facebook"
+    - "FB"
+  Apple:
+    - "apple"
+    - "apple inc"
+    - "AAPL"
+  Netflix:
+    - "netflix"
+    - "NFLX"
+  Uber:
+    - "uber"
+    - "uber technologies"
+  Flipkart:
+    - "flipkart"
+    - "flipkart internet"
+  Walmart:
+    - "walmart"
+    - "walmart labs"
+    - "walmart global tech"
+    - "WMT"
+  Oracle:
+    - "oracle"
+    - "oracle corp"
+    - "ORCL"
+  Adobe:
+    - "adobe"
+    - "adobe systems"
+    - "adobe inc"
+  Salesforce:
+    - "salesforce"
+    - "salesforce.com"
+    - "CRM"
+  IBM:
+    - "ibm"
+    - "international business machines"
+  Cisco:
+    - "cisco"
+    - "cisco systems"
+  Intel:
+    - "intel"
+    - "intel corp"
+  Samsung:
+    - "samsung"
+    - "samsung electronics"
+  Goldman Sachs:
+    - "goldman sachs"
+    - "goldman"
+    - "GS"
+  Morgan Stanley:
+    - "morgan stanley"
+    - "MS"
+  JP Morgan:
+    - "jp morgan"
+    - "jpmorgan"
+    - "jpmorgan chase"
+    - "j.p. morgan"
+    - "JPM"
+  Deutsche Bank:
+    - "deutsche bank"
+    - "DB"
+  Infosys:
+    - "infosys"
+    - "infosys ltd"
+    - "infy"
+  TCS:
+    - "tcs"
+    - "tata consultancy services"
+    - "tata consultancy"
+  Wipro:
+    - "wipro"
+    - "wipro ltd"
+  Cognizant:
+    - "cognizant"
+    - "cognizant technology"
+    - "CTS"
+  Accenture:
+    - "accenture"
+  Deloitte:
+    - "deloitte"
+    - "deloitte consulting"
+  McKinsey:
+    - "mckinsey"
+    - "mckinsey & company"
+  CGI:
+    - "cgi"
+    - "cgi group"
+  Swiggy:
+    - "swiggy"
+  Zomato:
+    - "zomato"
+  Paytm:
+    - "paytm"
+    - "one97"
+  Razorpay:
+    - "razorpay"
+  PhonePe:
+    - "phonepe"
+    - "phone pe"
+  Atlassian:
+    - "atlassian"
+  ServiceNow:
+    - "servicenow"
+    - "service now"
+  VMware:
+    - "vmware"
+    - "vm ware"
+  Nvidia:
+    - "nvidia"
+    - "NVDA"
+  Tesla:
+    - "tesla"
+    - "tesla motors"
+    - "TSLA"
+  Stripe:
+    - "stripe"
+  Airbnb:
+    - "airbnb"
+    - "air bnb"
+  LinkedIn:
+    - "linkedin"
+  Twitter:
+    - "twitter"
+    - "x corp"
+  Snap:
+    - "snap"
+    - "snap inc"
+    - "snapchat"
+  Spotify:
+    - "spotify"
+  Shopify:
+    - "shopify"
+  ByteDance:
+    - "bytedance"
+    - "byte dance"
+    - "tiktok"
+  Qualcomm:
+    - "qualcomm"
+    - "QCOM"
+  Visa:
+    - "visa"
+    - "visa inc"
+  Mastercard:
+    - "mastercard"
+    - "master card"
+  PayPal:
+    - "paypal"
+    - "pay pal"
+  Intuit:
+    - "intuit"
+  Uber:
+    - "uber"
+  Lyft:
+    - "lyft"
+  DoorDash:
+    - "doordash"
+    - "door dash"
+  Databricks:
+    - "databricks"
+  Snowflake:
+    - "snowflake"
+  Palantir:
+    - "palantir"
+  Rippling:
+    - "rippling"
+
+
+# ─── Role Aliases ──────────────────────────────────
+# Format: Canonical Role Name: [aliases/shortforms]
+# Roman numerals (I, II, III) in matched roles are
+# converted to digits (1, 2, 3) by the code.
+
+role_aliases:
+  Software Development Engineer:
+    - "sde"
+    - "software development engineer"
+    - "software dev engineer"
+    - "sde1"
+    - "sde2"
+    - "sde3"
+    - "sde4"
+  Software Engineer:
+    - "software engineer"
+    - "swe"
+    - "se"
+    - "software developer"
+    - "application developer"
+    - "app developer"
+  Machine Learning Engineer:
+    - "machine learning engineer"
+    - "mle"
+    - "ml engineer"
+  Data Scientist:
+    - "data scientist"
+    - "ds"
+  Data Engineer:
+    - "data engineer"
+    - "de"
+    - "data engineering"
+  Data Analyst:
+    - "data analyst"
+    - "da"
+    - "business analyst"
+  Artificial Intelligence Engineer:
+    - "artificial intelligence engineer"
+    - "ai engineer"
+  Frontend Engineer:
+    - "frontend engineer"
+    - "front end engineer"
+    - "front-end engineer"
+    - "frontend developer"
+    - "front end developer"
+    - "ui developer"
+    - "ui engineer"
+  Backend Engineer:
+    - "backend engineer"
+    - "back end engineer"
+    - "back-end engineer"
+    - "backend developer"
+    - "back end developer"
+  Full Stack Engineer:
+    - "full stack engineer"
+    - "fullstack engineer"
+    - "full-stack engineer"
+    - "full stack developer"
+    - "fullstack developer"
+  DevOps Engineer:
+    - "devops engineer"
+    - "devops"
+    - "site reliability engineer"
+    - "sre"
+  Cloud Engineer:
+    - "cloud engineer"
+    - "cloud developer"
+  QA Engineer:
+    - "qa engineer"
+    - "quality assurance engineer"
+    - "sdet"
+    - "test engineer"
+    - "qa analyst"
+    - "quality analyst"
+  Product Manager:
+    - "product manager"
+    - "pm"
+    - "program manager"
+    - "apm"
+    - "associate product manager"
+  Technical Program Manager:
+    - "technical program manager"
+    - "tpm"
+  Engineering Manager:
+    - "engineering manager"
+    - "em"
+    - "eng manager"
+  Solutions Architect:
+    - "solutions architect"
+    - "sa"
+    - "solution architect"
+  System Administrator:
+    - "system administrator"
+    - "sysadmin"
+    - "sys admin"
+  Network Engineer:
+    - "network engineer"
+    - "network administrator"
+  Security Engineer:
+    - "security engineer"
+    - "cybersecurity engineer"
+    - "infosec engineer"
+  Database Administrator:
+    - "database administrator"
+    - "dba"
+  Mobile Developer:
+    - "mobile developer"
+    - "android developer"
+    - "ios developer"
+    - "mobile engineer"
+  Embedded Engineer:
+    - "embedded engineer"
+    - "embedded software engineer"
+    - "firmware engineer"
+  Research Engineer:
+    - "research engineer"
+    - "research scientist"
+  Storage Intern:
+    - "storage intern"
+
+
+# ─── Job Level Keywords ────────────────────────────
+# ORDER MATTERS — checked top to bottom, first match wins.
+# Put more specific levels before generic ones.
+
+level_keywords:
+  intern:
+    - "intern"
+    - "internship"
+    - "summer intern"
+    - "winter intern"
+    - "co-op"
+    - "trainee"
+    - "apprentice"
+  entry:
+    - "entry level"
+    - "entry-level"
+    - "fresher"
+    - "freshman"
+    - "new grad"
+    - "new graduate"
+    - "campus hire"
+    - "junior"
+    - "associate"
+    - "level 1"
+    - "l1"
+    - "sde 1"
+    - "sde1"
+    - "swe 1"
+    - "0 years"
+    - "0-1 years"
+    - "1 year experience"
+  mid:
+    - "mid level"
+    - "mid-level"
+    - "level 2"
+    - "l2"
+    - "sde 2"
+    - "sde2"
+    - "swe 2"
+    - "2-4 years"
+    - "3 years experience"
+    - "4 years experience"
+    - "5 years experience"
+  senior:
+    - "senior"
+    - "sr."
+    - "level 3"
+    - "l3"
+    - "sde 3"
+    - "sde3"
+    - "swe 3"
+    - "lead"
+    - "5-8 years"
+    - "6 years experience"
+    - "7 years experience"
+    - "8 years experience"
+  staff:
+    - "staff"
+    - "principal"
+    - "level 4"
+    - "l4"
+    - "l5"
+    - "distinguished"
+    - "8-12 years"
+    - "10 years experience"
+  leadership:
+    - "director"
+    - "vp"
+    - "vice president"
+    - "cto"
+    - "head of engineering"
+    - "engineering director"
+    - "l6"
+    - "l7"
+    - "c-level"
+
+
+# ─── Interview Type Keywords ──────────────────────
+
+interview_type_keywords:
+  phone_screen:
+    - "phone screen"
+    - "phone screening"
+    - "phone interview"
+    - "phone round"
+    - "telephonic"
+    - "telephonic round"
+    - "phone call"
+  onsite:
+    - "onsite"
+    - "on-site"
+    - "on site"
+    - "in-person"
+    - "in person"
+    - "face to face"
+    - "face-to-face"
+    - "f2f"
+    - "office visit"
+  online_assessment:
+    - "online assessment"
+    - "oa"
+    - "online test"
+    - "coding test"
+    - "coding round"
+    - "hackerrank test"
+    - "hackerearth test"
+    - "aptitude test"
+    - "aptitude round"
+    - "mcq test"
+    - "mcq round"
+  virtual:
+    - "virtual"
+    - "video call"
+    - "video interview"
+    - "zoom"
+    - "teams"
+    - "google meet"
+    - "webex"
+    - "remote interview"
+  on_campus:
+    - "on campus"
+    - "on-campus"
+    - "campus drive"
+    - "campus placement"
+    - "campus recruitment"
+    - "college placement"
+    - "visited our college"
+    - "visited our campus"
+  off_campus:
+    - "off campus"
+    - "off-campus"
+    - "referral"
+    - "applied online"
+    - "job portal"
+    - "naukri"
+    - "linkedin apply"
+  walk_in:
+    - "walk-in"
+    - "walk in"
+    - "walkin"
+
+
+# ─── Round Detection Patterns ─────────────────────
+# Regex patterns to identify individual interview rounds.
+# Each match = one round reference. Code counts unique matches.
+
+round_patterns:
+  # "Round 1", "Round 2", etc.
+  - "round\\s*(\\d+)"
+  # "1st round", "2nd round", "3rd round"
+  - "(\\d+)(?:st|nd|rd|th)\\s*round"
+  # Named rounds: "Technical Round", "HR Round", "Coding Round"
+  - "(technical\\s+(?:round|interview))"
+  - "(hr\\s+(?:round|interview))"
+  - "(coding\\s+(?:round|interview|test))"
+  - "(managerial\\s+(?:round|interview))"
+  - "(aptitude\\s+(?:round|test))"
+  - "(system\\s+design\\s+(?:round|interview))"
+  - "(behavioral\\s+(?:round|interview))"
+  - "(phone\\s+(?:screen(?:ing)?|round|interview))"
+  - "(onsite\\s+(?:round|interview))"
+  - "(final\\s+(?:round|interview))"
+  - "(group\\s+discussion)"
+  - "(pdm\\s+(?:round|interview))"
+  - "(culture\\s+fit\\s+(?:round|interview))"
+  - "(bar\\s+raiser\\s+(?:round|interview))"
+  - "(hiring\\s+manager\\s+(?:round|interview))"
+
+
+# ─── Topic Keywords ────────────────────────────────
+# Categories of interview question topics.
+# A topic is detected if ANY keyword appears in the text.
+
+topic_keywords:
+  dsa:
+    - "dsa"
+    - "data structure"
+    - "data structures"
+    - "algorithm"
+    - "algorithms"
+    - "binary search"
+    - "binary tree"
+    - "linked list"
+    - "stack"
+    - "queue"
+    - "heap"
+    - "hash map"
+    - "hashmap"
+    - "hash table"
+    - "sorting"
+    - "searching"
+    - "dynamic programming"
+    - "dp"
+    - "greedy"
+    - "backtracking"
+    - "recursion"
+    - "graph traversal"
+    - "bfs"
+    - "dfs"
+    - "tree traversal"
+    - "sliding window"
+    - "two pointer"
+    - "two pointers"
+    - "array"
+    - "string manipulation"
+    - "trie"
+    - "segment tree"
+    - "disjoint set"
+    - "union find"
+    - "topological sort"
+    - "shortest path"
+    - "dijkstra"
+    - "anagram"
+    - "palindrome"
+    - "matrix"
+    - "grid"
+    - "leetcode"
+  system_design:
+    - "system design"
+    - "high level design"
+    - "hld"
+    - "low level design"
+    - "lld"
+    - "scalability"
+    - "load balancer"
+    - "load balancing"
+    - "caching"
+    - "database design"
+    - "schema design"
+    - "microservices"
+    - "distributed system"
+    - "distributed systems"
+    - "api design"
+    - "rate limiting"
+    - "message queue"
+    - "pub sub"
+    - "sharding"
+    - "replication"
+    - "consistency"
+    - "availability"
+    - "cap theorem"
+  behavioral:
+    - "behavioral"
+    - "behaviour"
+    - "tell me about yourself"
+    - "introduce yourself"
+    - "self introduction"
+    - "strengths"
+    - "weaknesses"
+    - "where do you see yourself"
+    - "why this company"
+    - "why do you want"
+    - "conflict resolution"
+    - "teamwork"
+    - "leadership question"
+    - "challenging situation"
+    - "biggest achievement"
+    - "failure"
+    - "career goals"
+  sql_dbms:
+    - "sql"
+    - "dbms"
+    - "database"
+    - "query"
+    - "queries"
+    - "join"
+    - "normalization"
+    - "indexing"
+    - "transactions"
+    - "acid"
+    - "stored procedure"
+    - "trigger"
+    - "view"
+    - "primary key"
+    - "foreign key"
+    - "relational"
+    - "er diagram"
+    - "nosql"
+  os:
+    - "operating system"
+    - "operating systems"
+    - "cpu scheduling"
+    - "process"
+    - "thread"
+    - "deadlock"
+    - "semaphore"
+    - "mutex"
+    - "virtual memory"
+    - "paging"
+    - "segmentation"
+    - "memory management"
+    - "file system"
+    - "context switch"
+    - "multithreading"
+    - "synchronization"
+  networking:
+    - "networking"
+    - "computer network"
+    - "tcp"
+    - "udp"
+    - "http"
+    - "https"
+    - "dns"
+    - "osi model"
+    - "ip address"
+    - "subnetting"
+    - "routing"
+    - "firewall"
+    - "ssl"
+    - "tls"
+    - "socket"
+    - "rest api"
+  oop:
+    - "oops"
+    - "oop"
+    - "object oriented"
+    - "object-oriented"
+    - "inheritance"
+    - "polymorphism"
+    - "encapsulation"
+    - "abstraction"
+    - "design pattern"
+    - "design patterns"
+    - "solid principles"
+    - "singleton"
+    - "factory pattern"
+    - "interface"
+    - "abstract class"
+  ml_ai:
+    - "machine learning"
+    - "deep learning"
+    - "neural network"
+    - "classification"
+    - "regression"
+    - "random forest"
+    - "decision tree"
+    - "svm"
+    - "support vector"
+    - "gradient descent"
+    - "overfitting"
+    - "underfitting"
+    - "cross validation"
+    - "feature engineering"
+    - "nlp"
+    - "natural language"
+    - "computer vision"
+    - "cnn"
+    - "rnn"
+    - "lstm"
+    - "transformer"
+    - "bert"
+    - "gpt"
+    - "tensorflow"
+    - "pytorch"
+    - "llm"
+  web_dev:
+    - "html"
+    - "css"
+    - "javascript"
+    - "react"
+    - "angular"
+    - "vue"
+    - "node.js"
+    - "nodejs"
+    - "express"
+    - "django"
+    - "flask"
+    - "spring boot"
+    - "rest api"
+    - "graphql"
+    - "frontend"
+    - "backend"
+    - "full stack"
+  aptitude:
+    - "aptitude"
+    - "logical reasoning"
+    - "verbal reasoning"
+    - "quantitative"
+    - "puzzle"
+    - "puzzles"
+    - "brain teaser"
+    - "probability"
+    - "permutation"
+    - "combination"
+
+
+# ─── Outcome Keywords ─────────────────────────────
+# ORDER MATTERS — checked top to bottom, first match wins.
+# "offer" checked before "reject" because some posts mention
+# both but the final result is the later one.
+# The code checks last 30% of text first for recency bias.
+
+outcome_keywords:
+  offer:
+    - "got the offer"
+    - "received the offer"
+    - "received an offer"
+    - "got an offer"
+    - "got selected"
+    - "was selected"
+    - "i was selected"
+    - "finally selected"
+    - "officially selected"
+    - "i got in"
+    - "cleared all"
+    - "cleared the interview"
+    - "offer letter"
+    - "offer in hand"
+    - "accepted the offer"
+    - "joined"
+    - "i joined"
+    - "placed"
+    - "i was placed"
+    - "got placed"
+  reject:
+    - "got rejected"
+    - "was rejected"
+    - "i was rejected"
+    - "didn't get selected"
+    - "did not get selected"
+    - "not selected"
+    - "wasn't selected"
+    - "couldn't clear"
+    - "could not clear"
+    - "didn't clear"
+    - "did not clear"
+    - "failed"
+    - "rejected"
+    - "rejection"
+    - "didn't make it"
+    - "did not make it"
+    - "no offer"
+    - "not shortlisted"
+  pending:
+    - "waiting for result"
+    - "waiting for the result"
+    - "awaiting result"
+    - "result pending"
+    - "still waiting"
+    - "yet to hear"
+    - "haven't heard"
+    - "no response yet"
+    - "fingers crossed"
+
+
+# ─── Difficulty Keywords ──────────────────────────
+# ORDER MATTERS — checked top to bottom, first match wins.
+# Check "hard" before "medium" before "easy".
+
+difficulty_keywords:
+  hard:
+    - "very difficult"
+    - "very tough"
+    - "extremely hard"
+    - "extremely difficult"
+    - "very challenging"
+    - "really tough"
+    - "really hard"
+    - "quite difficult"
+    - "struggled"
+    - "struggled a lot"
+    - "couldn't solve"
+    - "could not solve"
+    - "very tricky"
+  medium:
+    - "moderate"
+    - "moderately difficult"
+    - "not too hard"
+    - "not too easy"
+    - "decent difficulty"
+    - "average difficulty"
+    - "manageable"
+    - "somewhat challenging"
+    - "a bit tricky"
+  easy:
+    - "very easy"
+    - "quite easy"
+    - "really easy"
+    - "straightforward"
+    - "simple questions"
+    - "basic questions"
+    - "easy questions"
+    - "not difficult"
+    - "no difficulty"
+    - "smooth"
+    - "went smoothly"
+    - "comfortable"
+    - "too easy"

@@ -1,0 +1,239 @@
+# ═══════════════════════════════════════════════════
+# Content Normalization Patterns
+#
+# Single config for all normalization regex patterns.
+# Edit patterns here — no code changes needed.
+#
+# Sections:
+#   platform_aliases      - Map scraper names to canonical keys
+#   markdown              - Markdown formatting removal (with replacements)
+#   boilerplate_generic   - Cross-platform web junk
+#   boilerplate_platform  - Platform-specific junk (keyed by canonical name)
+#
+# Pattern format:
+#   pattern:     Python regex string
+#   replacement: Replacement string (only for markdown section)
+#   flags:       List of re flag names [IGNORECASE, MULTILINE, DOTALL]
+# ═══════════════════════════════════════════════════
+
+
+# ─── Platform Aliases ──────────────────────────────
+# Maps scraper-emitted source_platform values to
+# canonical keys used in boilerplate_platform below.
+
+platform_aliases:
+  gfg: "gfg"
+  geeksforgeeks: "gfg"
+  medium: "medium"
+  leetcode: "leetcode"
+  reddit: "reddit"
+
+
+# ─── Markdown Patterns ────────────────────────────
+# Strips formatting, keeps underlying text.
+# Fenced code blocks (```) handled in code, not here.
+
+markdown:
+  - pattern: "!\\[([^\\]]*)\\]\\([^)]+\\)"
+    replacement: ""
+    # ![alt](url) → remove images
+
+  - pattern: "\\[([^\\]]+)\\]\\([^)]+\\)"
+    replacement: "\\1"
+    # [text](url) → text
+
+  - pattern: "(\\*{1,3}|_{1,3})(.+?)\\1"
+    replacement: "\\2"
+    # **bold** / *italic* → plain
+
+  - pattern: "~~(.+?)~~"
+    replacement: "\\1"
+    # ~~strikethrough~~ → plain
+
+  - pattern: "^#{1,6}\\s+"
+    replacement: ""
+    flags: ["MULTILINE"]
+    # ### heading → plain
+
+  - pattern: "^[>\\s]*>\\s?"
+    replacement: ""
+    flags: ["MULTILINE"]
+    # > blockquote → plain
+
+  - pattern: "^[-*+]\\s+"
+    replacement: ""
+    flags: ["MULTILINE"]
+    # - list item → plain
+
+  - pattern: "^\\d+\\.\\s+"
+    replacement: ""
+    flags: ["MULTILINE"]
+    # 1. ordered list → plain
+
+  - pattern: "`{1,3}([^`]*)`{1,3}"
+    replacement: "\\1"
+    # `inline code` → plain
+
+  - pattern: "^[-*_]{3,}$"
+    replacement: ""
+    flags: ["MULTILINE"]
+    # --- horizontal rule → remove
+
+
+# ─── Generic Boilerplate ──────────────────────────
+# Web junk common across all platforms.
+
+boilerplate_generic:
+  - pattern: "share\\s+(this|on)\\s+(twitter|facebook|linkedin|reddit|x\\.com)"
+    flags: ["IGNORECASE"]
+
+  - pattern: "(follow\\s+(us|me)\\s+on)\\s+(twitter|linkedin|medium|github)"
+    flags: ["IGNORECASE"]
+
+  - pattern: "(sign\\s*up|log\\s*in|subscribe)\\s+(to|for)\\s+"
+    flags: ["IGNORECASE"]
+
+  - pattern: "cookie\\s+(policy|consent|preferences)"
+    flags: ["IGNORECASE"]
+
+  - pattern: "©\\s*\\d{4}.*?all\\s+rights\\s+reserved"
+    flags: ["IGNORECASE"]
+
+  - pattern: "(read\\s+more|continue\\s+reading)\\s*(\\.{3}|…)?"
+    flags: ["IGNORECASE"]
+
+  - pattern: "^\\s*(advertisement|sponsored|promoted)\\s*$"
+    flags: ["IGNORECASE", "MULTILINE"]
+
+  - pattern: "(subscribe\\s+to|join)\\s+(our|my)\\s+(newsletter|mailing\\s+list)"
+    flags: ["IGNORECASE"]
+
+
+# ─── Platform-Specific Boilerplate ────────────────
+# Keyed by canonical platform name from platform_aliases.
+
+boilerplate_platform:
+
+  # ── GeeksforGeeks ──
+  gfg:
+    # "Last Updated : 26 Nov, 2025"
+    - pattern: "Last\\s+Updated\\s*:\\s*\\n?\\s*\\d{1,2}\\s+\\w+,?\\s*\\d{4}"
+      flags: ["IGNORECASE"]
+
+    # Footer starting with "Comment" — eats everything after
+    - pattern: "\\n\\s*Comment\\s*\\n.*"
+      flags: ["DOTALL"]
+
+    # "Article Tags:" section
+    - pattern: "\\n\\s*Article\\s+Tags\\s*:\\s*\\n.*"
+      flags: ["DOTALL"]
+
+    # "Improve / Suggest Changes / Like Article" widget
+    - pattern: "\\n\\s*Improve\\s*\\n\\s*Suggest\\s+Changes.*"
+      flags: ["DOTALL", "IGNORECASE"]
+
+    # "Similar Reads" section
+    - pattern: "\\n\\s*Similar\\s+Reads\\s*\\n.*"
+      flags: ["DOTALL", "IGNORECASE"]
+
+    # Standalone difficulty labels at end
+    - pattern: "\\n\\s*(Easy|Medium|Hard|Basic)\\s*$"
+      flags: ["IGNORECASE"]
+
+    # "Related Articles" section
+    - pattern: "\\n\\s*Related\\s+Articles\\s*\\n.*"
+      flags: ["DOTALL", "IGNORECASE"]
+
+    # Breadcrumbs: "Home > Interview Experiences > ..."
+    - pattern: "^\\s*Home\\s*>.*?\\n"
+      flags: ["IGNORECASE"]
+
+  # ── Medium ──
+  medium:
+    # "3 min read"
+    - pattern: "\\d+\\s+min(ute)?s?\\s+read"
+      flags: ["IGNORECASE"]
+
+    # "Published in <publication>"
+    - pattern: "Published\\s+in\\s+[\\w\\s]+"
+      flags: ["IGNORECASE"]
+
+    # "Follow" / "Written by" / "More from" CTAs
+    - pattern: "^\\s*(Follow|Written\\s+by|More\\s+from)\\s+"
+      flags: ["IGNORECASE", "MULTILINE"]
+
+    # Clap / response counts
+    - pattern: "\\d+\\s*(claps?|responses?)"
+      flags: ["IGNORECASE"]
+
+    # Auth prompts
+    - pattern: "(Sign\\s+up|Sign\\s+in)\\s+(with|to)\\s+"
+      flags: ["IGNORECASE"]
+
+    # Paywall notice
+    - pattern: "Member-only\\s+story"
+      flags: ["IGNORECASE"]
+
+    # "Open in app"
+    - pattern: "Open\\s+in\\s+app"
+      flags: ["IGNORECASE"]
+
+    # "Recommended from Medium" tail section
+    - pattern: "\\n\\s*(Recommended|More)\\s+from\\s+Medium\\s*\\n.*"
+      flags: ["DOTALL", "IGNORECASE"]
+
+    # Author bio: "About the Author" / "About Me" at end
+    - pattern: "\\n\\s*About\\s+(the\\s+Author|Me)\\s*\\n.*"
+      flags: ["DOTALL", "IGNORECASE"]
+
+    # "Connect with me on..." social blocks
+    - pattern: "\\n\\s*Connect\\s+with\\s+me\\s+on\\s+.*"
+      flags: ["DOTALL", "IGNORECASE"]
+
+    # "If you enjoyed/found this..." engagement CTAs
+    - pattern: "\\n\\s*If\\s+you\\s+(enjoyed|found|liked)\\s+(this|my)\\s+.*"
+      flags: ["DOTALL", "IGNORECASE"]
+
+  # ── LeetCode ──
+  leetcode:
+    # Standalone difficulty labels
+    - pattern: "^\\s*(Easy|Medium|Hard)\\s*$"
+      flags: ["IGNORECASE", "MULTILINE"]
+
+    # Submission stats
+    - pattern: "\\d+[\\d,.]*[KMB]?\\s*(Accepted|Submissions|Acceptance\\s+Rate)"
+      flags: ["IGNORECASE"]
+
+    # Vote / view / reply counts
+    - pattern: "\\d+[\\d,.]*[KMB]?\\s*(votes?|views?|replies|likes?)"
+      flags: ["IGNORECASE"]
+
+    # Button text: Report, Share, Reply
+    - pattern: "^\\s*(Report|Share|Reply|Copy)\\s*$"
+      flags: ["IGNORECASE", "MULTILINE"]
+
+    # User reputation / badge
+    - pattern: "^\\s*(Reputation|Badge)\\s*:.*$"
+      flags: ["IGNORECASE", "MULTILINE"]
+
+    # Company / topic tag lists
+    - pattern: "^\\s*(Companies|Related\\s+Topics?)\\s*:.*$"
+      flags: ["IGNORECASE", "MULTILINE"]
+
+    # "Show Hint" / "Show Solution" buttons
+    - pattern: "^\\s*Show\\s+(Hint|Solution|Tags|Companies)\\s*$"
+      flags: ["IGNORECASE", "MULTILINE"]
+
+  # ── Reddit ──
+  reddit:
+    # Vote / comment counts
+    - pattern: "\\d+\\s*(upvotes?|downvotes?|comments?|points?)"
+      flags: ["IGNORECASE"]
+
+    # "Posted by u/username"
+    - pattern: "Posted\\s+by\\s+u/\\S+"
+      flags: ["IGNORECASE"]
+
+    # Standalone subreddit references
+    - pattern: "^\\s*r/\\w+\\s*$"
+      flags: ["MULTILINE"]

@@ -42,7 +42,7 @@ class ScrapedInterviewDocument:
     def to_dict(self) -> Dict:
         """Convert the document to a serializable dictionary."""
         data = asdict(self)
-        data["content_hash"] = self.content_hash
+        # data["content_hash"] = self.content_hash
         return data
 
     def to_json(self) -> str:

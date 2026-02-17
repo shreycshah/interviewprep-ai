@@ -1,0 +1,63 @@
+# ─────────────────────────────────────────────────────────
+# Preprocessing Pipeline Configuration
+#
+# Controls step ordering, checkpointing, batch sizes,
+# GCS paths, and per-step feature flags.
+#
+# To skip a step: set enabled: false
+# To reorder: change the order in the steps list
+# To add checkpointing after a step: set checkpoint: true
+# ─────────────────────────────────────────────────────────
+
+# ── GCS Paths ──
+gcs:
+  bucket_name: "interviewprep-ai-data"
+  project_id: "professorbot-dovbsg"
+  secret_name: "gcs-service-account-key"
+  raw_prefix: "raw"                      # Where scraped JSONs live
+  processed_prefix: "processed"          # Where ProcessedDocuments go
+  checkpoint_prefix: "checkpoints/"       # Intermediate state between steps
+  quarantine_prefix: "quarantine/"        # Docs that fail validation
+
+# ── Batch Processing ──
+batch:
+  size: 500                               # Docs per batch (memory vs throughput tradeoff)
+  max_workers: 4                          # Parallel doc processing within a step
+  fail_fast: false                        # true = halt on first error; false = log and continue
+
+# ── Pipeline Steps (executed in order) ──
+steps:
+  - name: "content_normalizer"
+    enabled: true
+    checkpoint: false
+
+  - name: "pii_remover"
+    enabled: true
+    checkpoint: false
+
+  - name: "quality_filter"
+    enabled: true
+    checkpoint: false
+
+  - name: "deduplicator"
+    enabled: true
+    checkpoint: true                      # Expensive step — checkpoint after
+
+  - name: "entity_extractor"
+    enabled: true
+    checkpoint: true                      # NER/LLM calls — checkpoint after
+
+  - name: "schema_validator"
+    enabled: true
+    checkpoint: false                     # Final step — output goes to GCS directly
+
+# ── Checkpointing ──
+checkpoint:
+  enabled: true                           # Global toggle
+  format: "jsonl"                         # jsonl (one doc per line) or json (array)
+  cleanup_on_success: true                # Delete checkpoints after pipeline completes
+
+# ── Logging & Metrics ──
+logging:
+  level: "INFO"                           # DEBUG for step-level doc tracing
+  report_every_n_docs: 100               # Progress log frequency within a batch
