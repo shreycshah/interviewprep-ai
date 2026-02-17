@@ -26,6 +26,7 @@ from collections import Counter
 from src.storage.storage_backend import StorageBackend
 from src.scrapers.configs.leetcode import LeetCodeScraperConfigs
 from src.data_models.scraped_document import ScrapedInterviewDocument
+from src.data_models.scraping_manifest import Manifest
 
 
 # ============== LEETCODE SCRAPER CLASS ==============
@@ -57,6 +58,7 @@ class LeetCodeScraper:
 
         # Storage paths
         self.today_raw_prefix = self.config.get_raw_prefix(self.batch_id)
+        self.manifests_prefix = self.config.MANIFESTS_PREFIX
 
         # HTTP session
         self.session = requests.Session()
@@ -401,6 +403,30 @@ class LeetCodeScraper:
             if dates:
                 print(f"\n  Date range: {min(dates)[:10]} to {max(dates)[:10]}")
 
+    # ─────────── Manifest ───────────
+    def _create_manifest(self, documents: List[ScrapedInterviewDocument], started_at: str) -> Manifest:
+        manifest = Manifest(
+            scrape_date=self.config.get_today_str(),
+            scrape_type=self.scrape_type,
+            started_at=started_at,
+            completed_at=ScrapedInterviewDocument.now_iso(),
+            sources={
+                "leetcode": {
+                    "files_collected": self.stats["files_collected"],
+                    "posts_listed": self.stats["posts_listed"],
+                    "errors": self.stats["errors"],
+                    "error_ids": self.stats["error_ids"][:10],
+                    "pages_fetched": self.stats["pages_fetched"],
+                }
+            },
+            total_files=self.stats["files_collected"],
+        )
+
+        manifest_path = f"{self.manifests_prefix}/scrape_{self.config.get_today_str()}.json"
+        manifest.save(self.storage, manifest_path)
+        print(f"\nManifest saved to {manifest_path}")
+        return manifest
+
     # ─────────── Main Entry Point ───────────
     def run(self):
         """Execute the scraping pipeline."""
@@ -412,6 +438,7 @@ class LeetCodeScraper:
         print(f"Batch ID: {self.batch_id}")
 
         start_time = datetime.now()
+        started_at = start_time.isoformat() + "Z"
 
         # Step 1: List posts
         posts = self._fetch_post_list()
@@ -421,6 +448,9 @@ class LeetCodeScraper:
 
         # Step 2: Fetch details & save
         documents = self._scrape_articles(posts)
+
+        # Step 3: Save manifest
+        manifest = self._create_manifest(documents, started_at)
 
         # Summary
         self._print_summary(documents, start_time)
