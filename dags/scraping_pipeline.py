@@ -21,7 +21,7 @@ def scrape_geeksforgeeks(**kwargs):
     print("=" * 60)
     storage = GCSBackend(bucket_name=GCS_BUCKET_NAME, project_id=GCP_PROJECT_ID)
     scraper = GFGScraper(
-        scrape_type='bulk',  # ← CHANGED TO BULK
+        scrape_type='bulk',
         storage=storage
     )
     scraper.run()
@@ -35,7 +35,7 @@ def scrape_leetcode(**kwargs):
     print("=" * 60)
     storage = GCSBackend(bucket_name=GCS_BUCKET_NAME, project_id=GCP_PROJECT_ID)
     scraper = LeetCodeScraper(
-        scrape_type='bulk',  #  CHANGED TO BULK
+        scrape_type='bulk',
         storage=storage,
         fetch_comments=False
     )
@@ -50,7 +50,7 @@ def scrape_medium(**kwargs):
     print("=" * 60)
     storage = GCSBackend(bucket_name=GCS_BUCKET_NAME, project_id=GCP_PROJECT_ID)
     scraper = MediumScraper(
-        scrape_type='bulk',  #  CHANGED TO BULK
+        scrape_type='bulk',
         storage=storage,
         log_dir='/tmp/medium_logs'
     )
@@ -93,57 +93,56 @@ default_args = {
     'depends_on_past': False,
     'start_date': datetime(2024, 1, 1),
     'email_on_failure': False,
-    'retries': 0,  # Changed to 0
+    'retries': 0,
 }
 
 dag = DAG(
     'interview_scraping_pipeline',
     default_args=default_args,
-    description='Scrape interview experiences - BULK MODE (all historical data)',
-    schedule_interval=None,  # Manual trigger only for bulk
+    description='Scrape interview experiences - BULK MODE',
+    schedule=None,  #  FIXED: was schedule_interval
     catchup=False,
     tags=['scraping', 'bulk', 'production'],
 )
 
 start = BashOperator(
     task_id='start',
-    bash_command='echo "Starting BULK scraping pipeline at $(date)"',
+    bash_command='echo " Starting BULK scraping at $(date)"',
     dag=dag,
 )
 
 scrape_gfg = PythonOperator(
     task_id='scrape_gfg',
     python_callable=scrape_geeksforgeeks,
-    execution_timeout=None,  #  INFINITE TIMEOUT
+    execution_timeout=timedelta(hours=24),  #  FIXED: was None
     dag=dag,
 )
 
 scrape_leetcode = PythonOperator(
     task_id='scrape_leetcode',
     python_callable=scrape_leetcode,
-    execution_timeout=None,  #  INFINITE TIMEOUT
+    execution_timeout=timedelta(hours=24),  #  FIXED: was None
     dag=dag,
 )
 
 scrape_medium = PythonOperator(
     task_id='scrape_medium',
     python_callable=scrape_medium,
-    execution_timeout=None,  #  INFINITE TIMEOUT
+    execution_timeout=timedelta(hours=24),  #  FIXED: was None
     dag=dag,
 )
 
 summary = PythonOperator(
     task_id='print_summary',
     python_callable=print_summary,
-    execution_timeout=None,  #  INFINITE TIMEOUT
+    execution_timeout=timedelta(hours=1),  #  FIXED: was None
     dag=dag,
 )
 
 complete = BashOperator(
     task_id='complete',
-    bash_command='echo "BULK Pipeline completed at $(date)"',
+    bash_command='echo " Pipeline completed at $(date)"',
     dag=dag,
 )
 
-# Dependencies - all scrapers run in parallel
 start >> [scrape_gfg, scrape_leetcode, scrape_medium] >> summary >> complete
