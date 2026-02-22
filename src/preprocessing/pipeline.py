@@ -251,7 +251,7 @@ class PreprocessingPipeline:
         gcs_cfg = self.config["gcs"]
         self.storage = GCSBackend(bucket_name=gcs_cfg["bucket_name"],
                                   project_id=gcs_cfg["project_id"],
-                                  secret_name=gcs_cfg["secret_name"])
+                                  secret_name=gcs_cfg["secret_name",None])
 
         # Paths
         self.raw_prefix = gcs_cfg["raw_prefix"]
