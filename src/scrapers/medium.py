@@ -6,23 +6,22 @@ import json
 import re
 import logging
 from pathlib import Path
+from typing import List, Dict, Optional
 from bs4 import BeautifulSoup
 from markdownify import markdownify as md
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from dataclasses import dataclass
-from typing import Optional
-from datetime import date, datetime
+import hashlib
+import random
 
 from src.storage.storage_backend import StorageBackend
 from src.scrapers.configs.medium import MediumScraperConfigs
 from src.data_models.scraped_document import ScrapedInterviewDocument
+from src.data_models.scraping_manifest import Manifest
 
 
 """Utility functions for web scraping."""
 
-import hashlib
-import random
-import time
 
 def random_delay(min_seconds, max_seconds):
     """Sleep for a random amount of time to mimic human behavior."""
@@ -88,6 +87,7 @@ class MediumScraper:
 
         # Build relative paths for this run
         self.today_raw_prefix = self.config.get_raw_prefix(self.batch_id)
+        # self.manifests_prefix = self.config.MANIFESTS_PREFIX
 
         # Local log file
         self.log_dir = Path(log_dir or "./logs")
@@ -99,6 +99,8 @@ class MediumScraper:
             "total": 0,
             "success": 0,
             "paywalled": 0,
+            "sitemaps_processed": 0,
+            "urls_found": 0,
             "errors": {
                 "http_410_gone": 0,
                 "http_404_not_found": 0,
@@ -109,7 +111,8 @@ class MediumScraper:
                 "connection_error": 0,
                 "parse_error": 0,
                 "other": 0
-            }
+            },
+            "error_urls": [],
         }
 
     def _setup_logging(self):
@@ -140,9 +143,7 @@ class MediumScraper:
         logger.info(f"Log file: {self.log_file}")
         return logger
 
-    # ========================================================================
-    # SITEMAP METHODS
-    # ========================================================================
+    # ─────────── Sitemap Processing ───────────
 
     def fetch_sitemap(self, url):
         """Fetch sitemap using Playwright."""
@@ -197,58 +198,129 @@ class MediumScraper:
                 os.remove(download_path)
             return None
 
-    def filter_2025_sitemaps(self, xml_content):
-        """Filter sitemaps based on config pattern."""
+    def _get_sitemaps(self) -> List[SitemapInfo]:
+        """Fetch sitemap index and return matching SitemapInfo entries."""
+        print("\n[1/3] Fetching sitemap index...")
+        xml_content = self.fetch_sitemap(self.config.SITEMAP_INDEX_URL)
+        if xml_content is None:
+            return []
+
         root = ET.fromstring(xml_content)
         ns = {'ns': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
 
-        filtered = []
+        sitemaps = []
         for sitemap in root.findall('.//ns:sitemap', ns):
             loc = sitemap.find('ns:loc', ns)
             lastmod = sitemap.find('ns:lastmod', ns)
             if loc is not None:
                 url = loc.text
                 if self.config.SITEMAP_FILTER_PATTERN in url:
-                    filtered.append(SitemapInfo(
+                    sitemaps.append(SitemapInfo(
                         url=url,
                         lastmod=lastmod.text.strip() if lastmod is not None and lastmod.text else None
                     ))
 
-        # Filter by BULK_START_DATE if in bulk mode
+        sitemaps.sort(key=lambda x: x.lastmod if x.lastmod else "0000-00-00", reverse=True)
+        print(f"    Found {len(sitemaps)} post sitemaps")
+        return sitemaps
+
+    def _filter_sitemaps(self, sitemaps: List[SitemapInfo]) -> List[SitemapInfo]:
+        """
+        Filter sitemaps based on scrape_type:
+          - bulk:        Only sitemaps with lastmod >= BULK_START_DATE
+          - incremental: Only sitemaps newer than the last manifest's last_sitemap_lastmod
+        """
         if self.scrape_type == "bulk":
             cutoff = date.fromisoformat(self.config.BULK_START_DATE)
-            filtered = [s for s in filtered if s.lastmod_date() is None or s.lastmod_date() >= cutoff]
+            filtered = [s for s in sitemaps if s.lastmod_date() is None or s.lastmod_date() >= cutoff]
+            print(f"    Filtered to {len(filtered)} sitemaps (lastmod >= {cutoff})")
+            return filtered
+        else:
+            last_manifest = Manifest.get_latest(self.storage, self.manifests_prefix)
+            if last_manifest and last_manifest.last_sitemap_lastmod:
+                cutoff_str = last_manifest.last_sitemap_lastmod
+                filtered = [s for s in sitemaps if s.lastmod and s.lastmod > cutoff_str]
+                print(f"    Incremental: {len(filtered)} sitemaps newer than {cutoff_str}")
+                return filtered
+            else:
+                print("    No previous manifest found, processing all sitemaps")
+                return sitemaps
 
-        self.logger.info(f"Filtered {len(filtered)} sitemaps containing matching posts")
-        return filtered
+    def _extract_interview_urls(self, sitemaps: List[SitemapInfo]) -> List[Dict]:
+        """Extract interview URLs from filtered sitemaps with lastmod filtering."""
+        print(f"\n[2/3] Extracting interview URLs from {len(sitemaps)} sitemaps...")
 
-    def extract_article_urls(self, xml_content):
-        """Extract article URLs from sitemap."""
-        root = ET.fromstring(xml_content)
-        ns = {'ns': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
+        all_urls = []
 
-        urls = []
-        for url_elem in root.findall('.//ns:url', ns):
-            loc = url_elem.find('ns:loc', ns)
-            if loc is not None:
-                urls.append(loc.text)
+        # Determine cutoff date for URL-level filtering
+        if self.scrape_type == "bulk":
+            cutoff_date = self.config.BULK_START_DATE
+        else:
+            last_manifest = Manifest.get_latest(self.storage, self.manifests_prefix)
+            if last_manifest and last_manifest.last_sitemap_lastmod:
+                cutoff_date = last_manifest.last_sitemap_lastmod.split("T")[0]
+            else:
+                cutoff_date = None
 
-        return urls
+        print(f"    URL lastmod cutoff: {cutoff_date or 'None (all URLs)'}")
 
-    def filter_interview_urls(self, urls):
-        """Filter URLs containing interview keyword from config."""
-        interview_urls = []
-        for url in urls:
-            if self.config.INTERVIEW_URL_KEYWORD in url.lower():
-                interview_urls.append(url)
+        for i, sitemap in enumerate(sitemaps):
+            print(f"    [{i+1}/{len(sitemaps)}] Processing {sitemap.url[:60]}...")
 
-        if interview_urls:
-            self.logger.info(f"Found {len(interview_urls)} interview URLs in sitemap")
-        return interview_urls
+            sitemap_content = self.fetch_sitemap(sitemap.url)
+            if sitemap_content is None:
+                continue
 
-    # ========================================================================
-    # SCRAPING METHODS
-    # ========================================================================
+            root = ET.fromstring(sitemap_content)
+            ns = {'ns': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
+
+            urls_in_sitemap = []
+            for url_elem in root.findall('.//ns:url', ns):
+                loc = url_elem.find('ns:loc', ns)
+                lastmod = url_elem.find('ns:lastmod', ns)
+                if loc is not None and loc.text:
+                    urls_in_sitemap.append({
+                        "url": loc.text.strip(),
+                        "lastmod": lastmod.text.strip() if lastmod is not None and lastmod.text else None,
+                    })
+
+            # Filter for interview URLs
+            interview_urls = [
+                u for u in urls_in_sitemap
+                if self.config.INTERVIEW_URL_KEYWORD in u["url"].lower()
+            ]
+
+            # Apply lastmod cutoff at URL level
+            if cutoff_date:
+                filtered_urls = []
+                for u in interview_urls:
+                    if u["lastmod"]:
+                        if u["lastmod"].split("T")[0] >= cutoff_date:
+                            filtered_urls.append(u)
+                    elif self.scrape_type == "bulk":
+                        # In bulk mode, include URLs without lastmod
+                        filtered_urls.append(u)
+                interview_urls = filtered_urls
+
+            all_urls.extend(interview_urls)
+            print(f"        Found {len(interview_urls)} interview URLs (after lastmod filter)")
+            self.stats["sitemaps_processed"] += 1
+
+            time.sleep(1)
+
+        # Deduplicate
+        seen = set()
+        unique_urls = []
+        for u in all_urls:
+            if u["url"] not in seen:
+                seen.add(u["url"])
+                unique_urls.append(u)
+
+        self.stats["urls_found"] = len(unique_urls)
+        print(f"    Total unique interview URLs: {len(unique_urls)}")
+        return unique_urls
+
+    # ─────────── Scraping Methods ───────────
 
     def fetch_html(self, url):
         """Fetch HTML using Playwright to avoid bot detection."""
@@ -305,6 +377,8 @@ class MediumScraper:
                 self.logger.error(f"Playwright error for {url}: {str(e)}")
                 return None, f"PLAYWRIGHT_ERROR: {str(e)}"
 
+    # ─────────── Paywall Detection ───────────
+
     def is_paywalled(self, soup):
         """Robust paywall detection with enhanced Apollo State checking."""
 
@@ -356,6 +430,8 @@ class MediumScraper:
             return True, "Paywall CTA"
 
         return False, None
+
+    # ─────────── Metadata Extraction ───────────
 
     def extract_metadata(self, soup, url):
         """Extract all available metadata from Medium article."""
@@ -466,6 +542,8 @@ class MediumScraper:
             self.logger.warning(f"Failed to extract from Apollo state: {str(e)}")
             return None
 
+    # ─────────── Article Parsing ───────────
+
     def parse_article(self, html, url):
         """Parse Medium article with Apollo State + HTML fallback."""
         try:
@@ -568,107 +646,76 @@ class MediumScraper:
             self.logger.error(traceback.format_exc())
             return None, f"PARSE_ERROR: {str(e)}"
 
+    # ─────────── Scraping ───────────
+
+    def _scrape_articles(self, urls: List[Dict]):
+        """Scrape all articles and update stats."""
+        print(f"\n[3/3] Scraping {len(urls)} articles...")
+        print(f"    Using random delays ({self.config.FETCH_DELAY_MIN}-{self.config.FETCH_DELAY_MAX}s fetch, "
+              f"{self.config.BETWEEN_ARTICLES_DELAY_MIN}-{self.config.BETWEEN_ARTICLES_DELAY_MAX}s between articles)")
+
+        for i, url_data in enumerate(urls):
+            url = url_data["url"]
+            print(f"    [{i+1}/{len(urls)}] {url[:65]}...")
+
+            html, fetch_error = self.fetch_html(url)
+            if fetch_error:
+                self.logger.warning(f"Fetch error for {url}: {fetch_error}")
+                error_category, _ = categorize_error(fetch_error)
+                self.stats["errors"][error_category] += 1
+                self.stats["error_urls"].append(url)
+                continue
+
+            doc, parse_error = self.parse_article(html, url)
+            if parse_error:
+                if "PAYWALLED" in parse_error:
+                    self.stats["paywalled"] += 1
+                else:
+                    self.stats["errors"]["parse_error"] += 1
+                    self.stats["error_urls"].append(url)
+                continue
+
+            self._save_document(doc)
+            self.stats["success"] += 1
+
+            random_delay(self.config.BETWEEN_ARTICLES_DELAY_MIN, self.config.BETWEEN_ARTICLES_DELAY_MAX)
+
     def _save_document(self, doc: ScrapedInterviewDocument):
         """Save document via storage backend — works for both local and GCS."""
         path = f"{self.today_raw_prefix}/{doc.document_id}.json"
         self.storage.write_json(path, doc.to_dict())
 
-    def scrape_article(self, url):
-        """Scrape a single article."""
-
-        # Fetch HTML
-        html, fetch_error = self.fetch_html(url)
-
-        if fetch_error:
-            return {
-                "url": url,
-                "status": "FETCH_ERROR",
-                "error_type": fetch_error,
-            }
-
-        # Parse article
-        doc, parse_error = self.parse_article(html, url)
-
-        if parse_error:
-            return {
-                "url": url,
-                "status": "PARSE_ERROR",
-                "error_type": parse_error,
-            }
-
-        # Save via storage backend
-        self._save_document(doc)
-
-        return {
-            "url": url,
-            "status": "SUCCESS",
-            "document_id": doc.document_id,
-        }
-
-    # ========================================================================
-    # WORKFLOW METHODS
-    # ========================================================================
-
-    def collect_interview_urls(self, sitemap_urls):
-        """Collect all interview URLs from sitemaps."""
-        self.logger.info("="*60)
-        self.logger.info("PHASE 1: COLLECTING INTERVIEW URLS")
-        self.logger.info("="*60)
-
-        all_interview_urls = []
-
-        for i, sitemap in enumerate(sitemap_urls, 1):
-            self.logger.info(f"Processing sitemap {i}/{len(sitemap_urls)}: {sitemap.url}")
-
-            sitemap_content = self.fetch_sitemap(sitemap.url)
-            if sitemap_content is None:
-                continue
-
-            article_urls = self.extract_article_urls(sitemap_content)
-            interview_urls = self.filter_interview_urls(article_urls)
-            all_interview_urls.extend(interview_urls)
-
-            time.sleep(1)
-
-        self.logger.info(f"Total interview URLs collected: {len(all_interview_urls)}")
-        return all_interview_urls
-
-    def scrape_all_articles(self, urls):
-        """Scrape all articles and update stats."""
-        self.logger.info("="*60)
-        self.logger.info("PHASE 2: SCRAPING ARTICLES")
-        self.logger.info("="*60)
-        self.logger.info(f"Using random delays ({self.config.FETCH_DELAY_MIN}-{self.config.FETCH_DELAY_MAX}s fetch, "
-                         f"{self.config.BETWEEN_ARTICLES_DELAY_MIN}-{self.config.BETWEEN_ARTICLES_DELAY_MAX}s between articles)")
-
-        for idx, url in enumerate(urls, 1):
-            self.logger.info(f"Scraping {idx}/{len(urls)}: {url}")
-
-            result = self.scrape_article(url)
-            self._update_stats(result)
-
-            random_delay(self.config.BETWEEN_ARTICLES_DELAY_MIN, self.config.BETWEEN_ARTICLES_DELAY_MAX)
-
-    def _update_stats(self, result):
-        """Update statistics based on scrape result."""
-        if result.get("status") == "SUCCESS":
-            self.stats["success"] += 1
-
-        elif result.get("status") == "PARSE_ERROR":
-            error_type = result.get("error_type", "")
-
-            if "PAYWALLED" in error_type:
-                self.stats["paywalled"] += 1
-            else:
-                self.stats["errors"]["parse_error"] += 1
-
-        elif result.get("status") == "FETCH_ERROR":
-            error_type = result.get("error_type", "")
-            category, _ = categorize_error(error_type)
-            self.stats["errors"][category] += 1
-
-        else:
-            self.stats["errors"]["other"] += 1
+    # # ─────────── Manifest ───────────
+    # def _create_manifest(self, sitemaps: List[SitemapInfo], started_at: str) -> Manifest:
+    #     latest_lastmod = None
+    #     if sitemaps:
+    #         latest_lastmod = max(
+    #             (s.lastmod for s in sitemaps if s.lastmod), default=None
+    #         )
+    #
+    #     manifest = Manifest(
+    #         scrape_date=self.config.get_today_str(),
+    #         scrape_type=self.scrape_type,
+    #         started_at=started_at,
+    #         completed_at=ScrapedInterviewDocument.now_iso(),
+    #         sources={
+    #             "medium": {
+    #                 "files_collected": self.stats["success"],
+    #                 "sitemaps_processed": self.stats["sitemaps_processed"],
+    #                 "urls_found": self.stats["urls_found"],
+    #                 "paywalled": self.stats["paywalled"],
+    #                 "errors": sum(self.stats["errors"].values()) if isinstance(self.stats["errors"], dict) else self.stats["errors"],
+    #                 "error_urls": self.stats["error_urls"][:10],
+    #             }
+    #         },
+    #         total_files=self.stats["success"],
+    #         last_sitemap_lastmod=latest_lastmod,
+    #     )
+    #
+    #     manifest_path = f"{self.manifests_prefix}/scrape_{self.config.get_today_str()}.json"
+    #     manifest.save(self.storage, manifest_path)
+    #     print(f"\nManifest saved to {manifest_path}")
+    #     return manifest
 
     def print_summary(self):
         """Print final statistics."""
@@ -681,13 +728,11 @@ class MediumScraper:
 
         if self.stats['errors']['http_403_forbidden'] > 0:
             print(f"\nWARNING: {self.stats['errors']['http_403_forbidden']} articles blocked (403)")
-            
+
         print(f"\nFull log: {self.log_file}")
         print("=" * 60)
 
-    # ========================================================================
-    # MAIN RUN METHOD
-    # ========================================================================
+    # ─────────── Main Entry Point ───────────
 
     def run(self):
         """Main pipeline execution."""
@@ -697,35 +742,38 @@ class MediumScraper:
         print("=" * 60)
         print(f"Batch ID: {self.batch_id}")
 
+        started_at = ScrapedInterviewDocument.now_iso()
         start_time = datetime.now()
 
-        # Fetch main sitemap
-        self.logger.info("Fetching main sitemap...")
-        xml_content = self.fetch_sitemap(self.config.SITEMAP_INDEX_URL)
-        if xml_content is None:
-            print("ERROR: Failed to fetch main sitemap. Exiting.")
+        # Step 1: Get sitemaps
+        sitemaps = self._get_sitemaps()
+        if not sitemaps:
+            print("ERROR: No sitemaps found. Exiting.")
             return
 
-        # Filter sitemaps
-        sitemap_urls = self.filter_2025_sitemaps(xml_content)
+        # Filter sitemaps by date
+        sitemaps = self._filter_sitemaps(sitemaps)
+        if not sitemaps:
+            print("No sitemaps to process after filtering. Exiting.")
+            return
 
         # Apply max sitemaps limit (for testing)
         if self.config.MAX_SITEMAPS is not None:
-            sitemap_urls = sitemap_urls[:self.config.MAX_SITEMAPS]
+            sitemaps = sitemaps[:self.config.MAX_SITEMAPS]
             self.logger.info(f"Limited to {self.config.MAX_SITEMAPS} sitemaps")
 
-        # Collect interview URLs
-        interview_urls = self.collect_interview_urls(sitemap_urls)
-        self.stats["total"] = len(interview_urls)
-
-        if not interview_urls:
+        # Step 2: Extract interview URLs
+        urls = self._extract_interview_urls(sitemaps)
+        self.stats["total"] = len(urls)
+        if not urls:
             print("No interview URLs found. Exiting.")
             return
 
-        # Scrape all articles
-        self.scrape_all_articles(interview_urls)
+        # Step 3: Scrape articles
+        self._scrape_articles(urls)
+        # manifest = self._create_manifest(sitemaps, started_at)
 
-        # Print summary
+        # Summary
         end_time = datetime.now()
         delta = end_time - start_time
         total_seconds = int(delta.total_seconds())
@@ -735,22 +783,21 @@ class MediumScraper:
         print(f"Total time taken for Medium Scraping: {minutes} min {seconds} sec")
 
 
-
 # ============== ENTRY POINT ==============
-# from src.storage.gcs_backend import GCSBackend
-#
-# if __name__ == "__main__":
-#     storage = GCSBackend(
-#         bucket_name="interviewprep-ai-data",
-#         project_id="professorbot-dovbsg",
-#         secret_name="gcs-service-account-key",
-#     )
-#
-#     config = MediumScraperConfigs()
-#
-#     scraper = MediumScraper(
-#         scrape_type=config.SCRAPE_TYPE,
-#         config=config,
-#         storage=storage,
-#     )
-#     scraper.run()
+from src.storage.gcs_backend import GCSBackend
+
+if __name__ == "__main__":
+    storage = GCSBackend(
+        bucket_name="interviewprep-ai-data",
+        project_id="professorbot-dovbsg",
+        secret_name="gcs-service-account-key",
+    )
+
+    config = MediumScraperConfigs()
+
+    scraper = MediumScraper(
+        scrape_type=config.SCRAPE_TYPE,
+        config=config,
+        storage=storage,
+    )
+    scraper.run()
