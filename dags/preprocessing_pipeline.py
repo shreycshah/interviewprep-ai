@@ -7,75 +7,66 @@ import sys
 sys.path.insert(0, '/home/dhruvkansara/airflow/dags')
 
 from src.preprocessing.pipeline import PreprocessingPipeline
-from src.storage.gcs_backend import GCSBackend
 
-GCS_BUCKET_NAME = 'interviewprep-ai-data'
-GCP_PROJECT_ID = 'professorbot-dovbsg'
+# PreprocessingPipeline reads GCS config from pipeline_config.yaml
+# No need to pass bucket name or project ID here!
 
 
 def run_preprocessing(**kwargs):
     """
     Run the complete preprocessing pipeline
     
-    This will:
-    1. Load raw scraped data from GCS
-    2. Apply all preprocessing steps
-    3. Save preprocessed data back to GCS
+    PreprocessingPipeline automatically:
+    1. Creates GCS backend from config
+    2. Loads raw data using batch_id
+    3. Applies all preprocessing steps
+    4. Saves preprocessed data back to GCS
     """
     print("=" * 60)
     print(" STARTING DATA PREPROCESSING PIPELINE")
     print("=" * 60)
     
-    # Create storage backend
-    storage = GCSBackend(
-        bucket_name=GCS_BUCKET_NAME,
-        project_id=GCP_PROJECT_ID
-    )
+    # Create pipeline (no storage parameter needed)
+    pipeline = PreprocessingPipeline()
     
-    # Create preprocessing pipeline
-    pipeline = PreprocessingPipeline(storage=storage)
+    # TODO: Get latest batch_id from scraping manifest
+    # For now, using hardcoded batch_id
+    batch_id = "2026-02-20_bulk"  # CHANGE THIS to your actual batch_id
+    
+    print(f" Processing batch: {batch_id}")
     
     # Run the pipeline
-    results = pipeline.run()
+    report = pipeline.run(batch_id=batch_id, resume=False)
     
     print("\n" + "=" * 60)
     print(" PREPROCESSING COMPLETE")
     print("=" * 60)
-    print(f" Documents processed: {results.get('total_processed', 0)}")
-    print(f" Documents passed: {results.get('passed', 0)}")
-    print(f" Documents filtered: {results.get('filtered', 0)}")
+    print(f" Input documents:  {report.input_count}")
+    print(f" Output documents: {report.output_count}")
+    print(f" Duration: {report.total_duration_seconds:.1f}s")
+    print(f" Status: {report.status}")
     print("=" * 60)
     
-    return results
+    return report.to_dict()
 
 
-def validate_preprocessed_data(**kwargs):
+def validate_results(**kwargs):
     """
-    Validate that preprocessing completed successfully
+    Validate preprocessing results
     """
     ti = kwargs['ti']
-    results = ti.xcom_pull(task_ids='preprocess_data')
+    report = ti.xcom_pull(task_ids='preprocess_data')
     
-    if not results:
-        raise ValueError("No preprocessing results found!")
+    if not report:
+        raise ValueError("No preprocessing report found!")
     
-    total = results.get('total_processed', 0)
-    passed = results.get('passed', 0)
-    
-    if total == 0:
-        raise ValueError("No documents were processed!")
-    
-    pass_rate = (passed / total) * 100 if total > 0 else 0
+    if report.get('status') != 'completed':
+        raise ValueError(f"Pipeline failed: {report.get('status')}")
     
     print(f"   Validation passed!")
-    print(f"   Pass rate: {pass_rate:.1f}%")
-    print(f"   Total processed: {total}")
-    print(f"   Quality threshold: PASSED")
+    print(f"   Processed: {report.get('output_count')} documents")
     
-    return {
-        'pass_rate': pass_rate,
-        'validation_status': 'PASSED'
-    }
+    return {'validation_status': 'PASSED'}
 
 
 default_args = {
@@ -83,14 +74,14 @@ default_args = {
     'depends_on_past': False,
     'start_date': datetime(2024, 1, 1),
     'email_on_failure': False,
-    'retries': 0,  # No retries to avoid timeout conflicts
+    'retries': 0,
 }
 
 dag = DAG(
     'preprocessing_pipeline',
     default_args=default_args,
-    description='Preprocess scraped interview data - normalize, dedupe, extract, validate',
-    schedule=None,  # Manual trigger
+    description='Preprocess scraped interview data',
+    schedule=None,
     catchup=False,
     tags=['preprocessing', 'data-quality', 'production'],
 )
@@ -104,14 +95,14 @@ start = BashOperator(
 preprocess = PythonOperator(
     task_id='preprocess_data',
     python_callable=run_preprocessing,
-    execution_timeout=timedelta(hours=24),  # 24 hour timeout
+    execution_timeout=timedelta(hours=24),
     dag=dag,
 )
 
 validate = PythonOperator(
     task_id='validate_results',
-    python_callable=validate_preprocessed_data,
-    execution_timeout=timedelta(hours=24),  # 24 hour timeout
+    python_callable=validate_results,
+    execution_timeout=timedelta(hours=24),
     dag=dag,
 )
 
@@ -121,5 +112,4 @@ complete = BashOperator(
     dag=dag,
 )
 
-# Pipeline flow
 start >> preprocess >> validate >> complete
