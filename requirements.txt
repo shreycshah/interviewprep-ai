@@ -7,3 +7,4 @@ pyyaml
 langdetect
 datasketch
 spacy
+google-cloud-secret-manager
