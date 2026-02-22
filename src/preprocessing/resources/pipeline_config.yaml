@@ -13,7 +13,7 @@
 gcs:
   bucket_name: "interviewprep-ai-data"
   project_id: "professorbot-dovbsg"
-  secret_name: "gcs-service-account-key"
+  # secret_name: "gcs-service-account-key"
   raw_prefix: "raw"                      # Where scraped JSONs live
   processed_prefix: "processed"          # Where ProcessedDocuments go
   checkpoint_prefix: "checkpoints/"       # Intermediate state between steps
