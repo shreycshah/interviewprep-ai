@@ -72,14 +72,18 @@ class GCSBackend(StorageBackend):
         self._tmp_key_path: Optional[str] = None
 
         # ── Auth Priority ──
-        # 1. Secret Manager
+        # 1. Secret Manager (with fallback to ADC on failure)
         if project_id and secret_name:
-            print(f"[GCS] Loading credentials from Secret Manager: {secret_name}")
-            self._tmp_key_path = _load_credentials_from_secret_manager(
-                project_id=project_id,
-                secret_name=secret_name,
-            )
-            self.client = gcs.Client.from_service_account_json(self._tmp_key_path)
+            try:
+                print(f"[GCS] Loading credentials from Secret Manager: {secret_name}")
+                self._tmp_key_path = _load_credentials_from_secret_manager(
+                    project_id=project_id,
+                    secret_name=secret_name,
+                )
+                self.client = gcs.Client.from_service_account_json(self._tmp_key_path)
+            except Exception as e:
+                print(f"[GCS] Secret Manager failed ({e}), falling back to default credentials")
+                self.client = gcs.Client()
 
         # 2. Default (env var or metadata server)
         else:

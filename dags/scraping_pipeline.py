@@ -2,13 +2,14 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.operators.bash import BashOperator
 from airflow.operators.email import EmailOperator
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.models import Variable
 from airflow.exceptions import AirflowFailException
 from datetime import datetime, timedelta
 import logging
 import sys
 
-sys.path.insert(0, '/home/dhruvkansara/airflow/dags')
+sys.path.insert(0, '/home/shiv/airflow/dags')
 
 from src.scrapers.gfg import GFGScraper
 from src.scrapers.leetcode import LeetCodeScraper
@@ -24,7 +25,6 @@ logger = logging.getLogger("interviewprep.dag")
 GCS_BUCKET_NAME = 'interviewprep-ai-data'
 GCP_PROJECT_ID = 'professorbot-dovbsg'
 
-# ── Email config ──────────────────────────────────────────────
 NOTIFY_EMAILS = [
     'kansara.dh@northeastern.edu',
     'lnu.prat@northeastern.edu',
@@ -36,13 +36,11 @@ NOTIFY_EMAILS = [
 
 
 def _get_batch_id(**kwargs) -> str:
-    """Build batch_id from Airflow execution date (e.g., 2026-02-22_bulk)."""
     execution_date = kwargs.get("logical_date", datetime.utcnow())
     return f"{execution_date.strftime('%Y-%m-%d')}_bulk"
 
 
 def _count_blobs(prefix: str, suffix: str = ".json") -> int:
-    """Count blobs under a given GCS prefix with optional suffix filter."""
     client = gcs.Client()
     bucket = client.bucket(GCS_BUCKET_NAME)
     blobs = list(bucket.list_blobs(prefix=prefix, max_results=5000))
@@ -52,12 +50,10 @@ def _count_blobs(prefix: str, suffix: str = ".json") -> int:
 
 
 def _as_bool(value) -> bool:
-    """Convert common string/int truthy values to bool."""
     return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 def _as_int(value, default: int) -> int:
-    """Best-effort int parser with fallback."""
     try:
         return int(value)
     except (TypeError, ValueError):
@@ -65,7 +61,6 @@ def _as_int(value, default: int) -> int:
 
 
 def _safe_variable_get(key: str, default: str) -> str:
-    """Read Airflow Variable safely and log fallback reasons."""
     try:
         return Variable.get(key, default_var=default)
     except Exception as e:
@@ -74,18 +69,6 @@ def _safe_variable_get(key: str, default: str) -> str:
 
 
 def _demo_settings(**kwargs) -> dict:
-    """
-    Resolve demo-limit controls from dag_run.conf first, then Airflow Variables.
-
-    Supported keys:
-      - demo_mode (bool)
-      - demo_limit_leetcode (int)
-      - demo_limit_gfg (int)
-      - demo_limit_medium (int)
-      - demo_medium_max_sitemaps (int)
-    """
-    # Airflow 2.x normally injects context into PythonOperator callables with **kwargs,
-    # but we still fallback to get_current_context() for robustness.
     dag_run = kwargs.get("dag_run")
     if dag_run is None:
         try:
@@ -105,7 +88,7 @@ def _demo_settings(**kwargs) -> dict:
         _safe_variable_get("demo_mode", "false"),
     )
 
-    # Debug visibility in task logs
+
     print(
         f"[demo_settings] raw_run_conf={run_conf}, "
         f"demo_mode_raw={demo_mode_raw}, "
@@ -115,39 +98,19 @@ def _demo_settings(**kwargs) -> dict:
     return {
         "enabled": _as_bool(demo_mode_raw),
         "leetcode_limit": _as_int(
-            run_conf.get(
-                "demo_limit_leetcode",
-                _safe_variable_get("demo_limit_leetcode", "10"),
-            ),
-            10,
+            run_conf.get("demo_limit_leetcode", _safe_variable_get("demo_limit_leetcode", "10")), 10,
         ),
         "gfg_limit": _as_int(
-            run_conf.get(
-                "demo_limit_gfg",
-                _safe_variable_get("demo_limit_gfg", "10"),
-            ),
-            10,
+            run_conf.get("demo_limit_gfg", _safe_variable_get("demo_limit_gfg", "10")), 10,
         ),
         "gfg_max_sitemaps": _as_int(
-            run_conf.get(
-                "demo_limit_gfg_sitemaps",
-                _safe_variable_get("demo_limit_gfg_sitemaps", "2"),
-            ),
-            2,
+            run_conf.get("demo_limit_gfg_sitemaps", _safe_variable_get("demo_limit_gfg_sitemaps", "2")), 2,
         ),
         "medium_limit": _as_int(
-            run_conf.get(
-                "demo_limit_medium",
-                _safe_variable_get("demo_limit_medium", "10"),
-            ),
-            10,
+            run_conf.get("demo_limit_medium", _safe_variable_get("demo_limit_medium", "10")), 10,
         ),
         "medium_max_sitemaps": _as_int(
-            run_conf.get(
-                "demo_medium_max_sitemaps",
-                _safe_variable_get("demo_medium_max_sitemaps", "1"),
-            ),
-            1,
+            run_conf.get("demo_medium_max_sitemaps", _safe_variable_get("demo_medium_max_sitemaps", "1")), 1,
         ),
     }
 
@@ -159,19 +122,13 @@ def scrape_geeksforgeeks(**kwargs):
     demo = _demo_settings(**kwargs)
     storage = GCSBackend(bucket_name=GCS_BUCKET_NAME, project_id=GCP_PROJECT_ID)
     config = GFGScraperConfigs()
-    scraper = GFGScraper(
-        scrape_type='bulk',
-        config=config,
-        storage=storage
-    )
+    scraper = GFGScraper(scrape_type='bulk', config=config, storage=storage)
 
     if demo["enabled"]:
         limit = max(0, demo["gfg_limit"])
         sitemap_limit = max(0, demo["gfg_max_sitemaps"])
-        # Limit sitemap discovery for demo runs.
         orig_filter = scraper._filter_sitemaps
         scraper._filter_sitemaps = lambda sitemaps, _orig=orig_filter: _orig(sitemaps)[:sitemap_limit]
-        # Limit actual article scraping
         orig_scrape_articles = scraper._scrape_articles
         scraper._scrape_articles = lambda urls, _orig=orig_scrape_articles: _orig(urls[:limit])
         print(f"Demo mode ON — limiting GFG to {sitemap_limit} sitemaps and {limit} articles")
@@ -193,12 +150,7 @@ def scrape_leetcode(**kwargs):
         config.BULK_MAX_POSTS = max(0, demo["leetcode_limit"])
         print(f"Demo mode ON — limiting LeetCode BULK_MAX_POSTS to {config.BULK_MAX_POSTS}")
 
-    scraper = LeetCodeScraper(
-        scrape_type='bulk',
-        config=config,
-        storage=storage,
-        fetch_comments=False
-    )
+    scraper = LeetCodeScraper(scrape_type='bulk', config=config, storage=storage, fetch_comments=False)
     scraper.run()
     print(f"LeetCode Complete: {scraper.stats['files_collected']} files")
     return scraper.stats
@@ -219,12 +171,7 @@ def scrape_medium(**kwargs):
             f"and articles to {max(0, demo['medium_limit'])}"
         )
 
-    scraper = MediumScraper(
-        scrape_type='bulk',
-        config=config,
-        storage=storage,
-        log_dir='/tmp/medium_logs'
-    )
+    scraper = MediumScraper(scrape_type='bulk', config=config, storage=storage, log_dir='/tmp/medium_logs')
 
     if demo["enabled"]:
         limit = max(0, demo["medium_limit"])
@@ -332,9 +279,7 @@ def validate_processed_data(**kwargs):
     errors = []
 
     if gcs_count == 0:
-        errors.append(
-            f"No processed files found at processed/{batch_id}/"
-        )
+        errors.append(f"No processed files found at processed/{batch_id}/")
 
     if preprocess_output > 0 and gcs_count != preprocess_output:
         errors.append(
@@ -347,9 +292,7 @@ def validate_processed_data(**kwargs):
 
     if errors:
         error_msg = "; ".join(errors)
-        raise AirflowFailException(
-            f"Processed data validation failed: {error_msg}"
-        )
+        raise AirflowFailException(f"Processed data validation failed: {error_msg}")
 
     print("\nProcessed data validated successfully.")
 
@@ -392,7 +335,6 @@ def load_to_database(**kwargs):
 
     conn.close()
 
-    # Generate and save DB load report to GCS
     from src.data_models.db_load_report import DBLoadReport
     report_storage = GCSBackend(bucket_name=GCS_BUCKET_NAME, project_id=GCP_PROJECT_ID)
     db_report = DBLoadReport.from_load_summary(result, source_prefix=prefix)
@@ -424,25 +366,13 @@ def build_email_body(**kwargs):
         medium_stats.get('success', 0)
     )
 
-    preprocess_status = ti.xcom_pull(
-        task_ids='run_preprocessing', key='preprocess_status'
-    ) or 'N/A'
-    preprocess_input = ti.xcom_pull(
-        task_ids='run_preprocessing', key='preprocess_input_count'
-    ) or 0
-    preprocess_output = ti.xcom_pull(
-        task_ids='run_preprocessing', key='preprocess_output_count'
-    ) or 0
-    preprocess_duration = ti.xcom_pull(
-        task_ids='run_preprocessing', key='preprocess_duration_seconds'
-    ) or 0
+    preprocess_status = ti.xcom_pull(task_ids='run_preprocessing', key='preprocess_status') or 'N/A'
+    preprocess_input = ti.xcom_pull(task_ids='run_preprocessing', key='preprocess_input_count') or 0
+    preprocess_output = ti.xcom_pull(task_ids='run_preprocessing', key='preprocess_output_count') or 0
+    preprocess_duration = ti.xcom_pull(task_ids='run_preprocessing', key='preprocess_duration_seconds') or 0
 
-    db_inserted = ti.xcom_pull(
-        task_ids='load_to_database', key='db_inserted'
-    ) or 0
-    db_skipped = ti.xcom_pull(
-        task_ids='load_to_database', key='db_skipped'
-    ) or 0
+    db_inserted = ti.xcom_pull(task_ids='load_to_database', key='db_inserted') or 0
+    db_skipped = ti.xcom_pull(task_ids='load_to_database', key='db_skipped') or 0
 
     failed_tasks = [
         t.task_id for t in dag_run.get_task_instances()
@@ -504,7 +434,7 @@ default_args = {
 dag = DAG(
     'interview_scraping_pipeline',
     default_args=default_args,
-    description='Scrape interview experiences, preprocess, validate, load, and notify',
+    description='Scrape interview experiences, preprocess, validate, and load to database',
     schedule=None,
     catchup=False,
     tags=['scraping', 'preprocessing', 'database', 'bulk', 'production'],
@@ -512,7 +442,7 @@ dag = DAG(
 
 start = BashOperator(
     task_id='start',
-    bash_command='echo " Starting BULK scraping at $(date)"',
+    bash_command='echo "Starting BULK scraping at $(date)"',
     dag=dag,
 )
 
@@ -569,9 +499,16 @@ db_load = PythonOperator(
     dag=dag,
 )
 
+trigger_chunking_embedding = TriggerDagRunOperator(
+    task_id='trigger_chunking_embedding',
+    trigger_dag_id='chunking_embedding_pipeline',
+    wait_for_completion=True,
+    dag=dag,
+)
+
 complete = BashOperator(
     task_id='complete',
-    bash_command='echo " Pipeline completed at $(date)"',
+    bash_command='echo "Pipeline completed at $(date)"',
     dag=dag,
 )
 
@@ -592,4 +529,4 @@ send_email = EmailOperator(
     dag=dag,
 )
 
-start >> [scrape_gfg, scrape_leetcode, scrape_medium] >> summary >> preprocess >> validate >> db_load >> complete >> build_email >> send_email
+start >> [scrape_gfg, scrape_leetcode, scrape_medium] >> summary >> preprocess >> validate >> db_load >> trigger_chunking_embedding >> complete >> build_email >> send_email

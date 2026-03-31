@@ -22,6 +22,13 @@
 | `datasketch` | MinHash + LSH for near-duplicate detection |
 | `spacy` | NER-based company extraction in EntityExtractor |
 | `psycopg2-binary` | PostgreSQL driver for the database loader |
+| `sentence-transformers` | Bi-encoder embedding models for chunking and retrieval |
+| `numpy` | Array operations for embeddings and metric computation |
+| `pandas` | Tabular data handling for eval dataset labelling |
+| `pgvector` | PostgreSQL vector similarity search extension |
+| `rank-bm25` | BM25 scoring for lexical retrieval in eval dataset generation |
+| `openai` | LLM-as-a-judge relevance grading for eval dataset |
+| `mlflow` | Experiment tracking for retrieval model evaluation |
 | `pytest` | Test framework |
 
 ---
@@ -64,8 +71,12 @@ export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account-key.json"
 export AIRFLOW_HOME=~/airflow
 airflow db init
 cp dags/scraping_pipeline.py $AIRFLOW_HOME/dags/
+cp dags/chunking_embedding_pipeline.py $AIRFLOW_HOME/dags/
 
-# 9. Run tests to verify setup
+# 9. Set MLflow tracking URI (for evaluation pipeline)
+export MLFLOW_TRACKING_URI="http://<mlflow-host>:5000"
+
+# 10. Run tests to verify setup
 pytest test/ -v
 ```
 
@@ -94,9 +105,17 @@ pytest test/ -v
 export AIRFLOW_HOME=~/airflow
 airflow db init
 cp dags/scraping_pipeline.py $AIRFLOW_HOME/dags/
+cp dags/chunking_embedding_pipeline.py $AIRFLOW_HOME/dags/
 
-# 5. Trigger the pipeline
+# 5. Trigger the data pipeline
 airflow dags trigger interview_scraping_pipeline
+
+# 6. Trigger the chunking + embedding pipeline
+airflow dags trigger chunking_embedding_pipeline
+
+# 7. Run retrieval evaluation (requires MLflow + DB access)
+export MLFLOW_TRACKING_URI="http://<mlflow-host>:5000"
+python src/evaluation/evaluator.py
 ```
 
 ### What Makes It Reproducible
@@ -115,7 +134,7 @@ airflow dags trigger interview_scraping_pipeline
 
 ### Overview
 
-The project has a comprehensive test suite with **20 test files** across 5 modules, plus 2 shared `conftest.py` fixture files. Everything uses `pytest` with `unittest.mock` — no real GCS, database, or network calls needed to run the tests.
+The project has a comprehensive test suite with **29 test files** across 9 modules, plus 2 shared `conftest.py` fixture files. Everything uses `pytest` with `unittest.mock` — no real GCS, database, or network calls needed to run the tests. Tests with missing optional dependencies (e.g., `sentence_transformers`, `mlflow`, `airflow`) skip gracefully via `pytest.importorskip`.
 
 ### What's Covered
 
@@ -124,6 +143,11 @@ The project has a comprehensive test suite with **20 test files** across 5 modul
 - **Database** — Loader tests mock both GCS and psycopg2, verifying correct SQL execution, error isolation, and summary generation. Sanitizer tests cover all enum mappings.
 - **Scrapers** — Config tests validate static attributes, URL patterns, and path generation. Implementation tests mock HTTP/GraphQL/Playwright calls and verify parsing, dedup, error handling, and manifest creation.
 - **Storage** — GCS backend tests cover all auth paths, CRUD operations, and temp key cleanup. The ABC test verifies that partial implementations are rejected.
+- **Chunking** — Tests for word counting, sentence splitting, header building, strategy detection, chunk_document, validate_chunks, DB fetch/insert, GCS manifest writing, and pipeline run flow.
+- **Embeddings** — Tests for column naming, missing embeddings fetch, batch update, manifest writing, and pipeline run.
+- **Eval dataset labelling** — Tests for score normalization, hybrid fusion, BM25 index, result pooling, chunk truncation, LLM response parsing, retry logic, CSV reading, and DB insertion.
+- **Evaluation** — Tests for retrieval metrics (MRR, Recall, Precision, NDCG), retrieval strategies, RRF fusion, bias report, config loading, selection score, and decision gate.
+- **DAGs** — Tests for task helper functions (`_as_bool`, `_as_int`, `_safe_variable_get`) and task callables with demo mode patching.
 
 ### Running Tests
 
@@ -136,6 +160,10 @@ pytest test/preprocessing/ -v
 pytest test/database/ -v
 pytest test/scrapers/ -v
 pytest test/storage/ -v
+pytest test/chunking/ -v
+pytest test/embeddings/ -v
+pytest test/eval_dataset_labelling/ -v
+pytest test/evaluation/ -v
 
 # Run with coverage
 pytest test/ --cov=src --cov-report=term-missing

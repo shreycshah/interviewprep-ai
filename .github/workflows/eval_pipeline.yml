@@ -1,0 +1,487 @@
+# .github/workflows/eval_pipeline.yml
+#
+# CI/CD: Retrieval Model Evaluation & Deployment
+# ───────────────────────────────────────────────
+# Flow:
+#   1. Detect changes in retrieval_model_configs.yaml → skip if none
+#   2. Run PipelineOrchestrator → creates MLflow parent run with child runs
+#   3. Find best model by selection_score from the parent run's children
+#   4. Compare against previous deployed best in MLflow
+#   5. If improved → upload artifacts to GCS → register in Vertex AI Model Registry
+#   6. Tag the MLflow parent run as "deployed"
+#
+# Config file monitored:
+#   src/evaluation/retrieval_model_configs.yaml
+
+name: Retrieval Eval & Deploy Pipeline
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/evaluation/retrieval_model_configs.yaml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/evaluation/retrieval_model_configs.yaml"
+
+env:
+  GCP_PROJECT_ID: professorbot-dovbsg
+  GCP_REGION: us-central1
+  MLFLOW_TRACKING_URI: http://${{ secrets.MLFLOW_HOST }}:5000
+  CONFIG_PATH: src/evaluation/retrieval_model_configs.yaml
+  MIN_IMPROVEMENT_THRESHOLD: 0.01
+
+jobs:
+  # ─────────────────────────────────────────────
+  # Job 1: Detect config changes
+  # ─────────────────────────────────────────────
+  detect-changes:
+    name: Detect Config Changes
+    runs-on: ubuntu-latest
+    outputs:
+      config_changed: ${{ steps.check.outputs.changed }}
+      change_summary: ${{ steps.check.outputs.summary }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check for config changes
+        id: check
+        run: |
+          if git diff HEAD~1 --name-only | grep -q "${{ env.CONFIG_PATH }}"; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            SUMMARY=$(git diff HEAD~1 -- ${{ env.CONFIG_PATH }} | head -80)
+            echo "summary<<EOF" >> $GITHUB_OUTPUT
+            echo "$SUMMARY" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            echo "✅ Config change detected"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "summary=No changes" >> $GITHUB_OUTPUT
+            echo "⏭️ No config changes — skipping pipeline"
+          fi
+
+  # ─────────────────────────────────────────────
+  # Job 2: Run evaluation via PipelineOrchestrator
+  # ─────────────────────────────────────────────
+  evaluate:
+    name: Run Retrieval Evaluation
+    needs: detect-changes
+    if: needs.detect-changes.outputs.config_changed == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      best_config_name: ${{ steps.run_eval.outputs.best_config }}
+      best_selection_score: ${{ steps.run_eval.outputs.best_score }}
+      parent_run_id: ${{ steps.run_eval.outputs.parent_run_id }}
+      prev_best_score: ${{ steps.compare.outputs.prev_best_score }}
+      is_improvement: ${{ steps.compare.outputs.is_improvement }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      # ── Run evaluation using PipelineOrchestrator ──
+      # Creates: parent run → child runs per model config → comparison summary
+      - name: Run PipelineOrchestrator
+        id: run_eval
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          MLFLOW_TRACKING_URI: ${{ env.MLFLOW_TRACKING_URI }}
+        run: |
+          python - <<'PYEOF'
+          import os, json, sys
+          from datetime import datetime
+
+          # Add src to path so evaluation module is importable
+          sys.path.insert(0, os.path.join(os.getcwd(), "src"))
+          
+          from evaluation.evaluator import (
+              load_eval_config, PipelineOrchestrator
+          )
+
+          db_config = {
+              "host":     os.environ["DB_HOST"],
+              "dbname":   os.environ["DB_NAME"],
+              "user":     os.environ["DB_USER"],
+              "password": os.environ["DB_PASSWORD"],
+              "port":     int(os.environ.get("DB_PORT", 5432)),
+              "sslmode":  "require",
+          }
+
+          # load_eval_config() reads from retrieval_model_configs.yaml
+          # which includes mlflow.tracking_uri, evaluation settings, and model configs
+          cfg = load_eval_config()
+          timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+          # Use MLflow URI from env (CI secret) over config file value
+          mlflow_uri = os.environ.get("MLFLOW_TRACKING_URI", cfg.get("mlflow_tracking_uri"))
+
+          orchestrator = PipelineOrchestrator(
+              db_config=db_config,
+              mlflow_tracking_uri=mlflow_uri,
+          )
+
+          # This creates:
+          #   - Parent run: pipeline_cicd_<timestamp>
+          #     - Child run: <model_config_1>  (with metrics + artifacts)
+          #     - Child run: <model_config_2>  (with metrics + artifacts)
+          #     - Child run: comparison_summary (with model_comparison.json + bias_comparison.json)
+          #   - Parent run also logs: best_selection_score, best_ndcg_at_10, best_config
+          all_metrics = orchestrator.run(
+              configs=cfg["configs"],
+              relevance_threshold=cfg["relevance_threshold"],
+              max_k=cfg["max_k"],
+              run_label=f"cicd_{timestamp}",
+          )
+
+          if not all_metrics:
+              print("❌ No configs completed evaluation")
+              sys.exit(1)
+
+          # Find best config by selection_score (same logic as PipelineOrchestrator)
+          best_name = max(all_metrics, key=lambda n: all_metrics[n].get("selection_score", 0))
+          best_score = all_metrics[best_name]["selection_score"]
+          best_metrics = all_metrics[best_name]
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"best_config={best_name}\n")
+              f.write(f"best_score={best_score}\n")
+
+          with open("eval_results.json", "w") as f:
+              json.dump({
+                  "best_config": best_name,
+                  "best_selection_score": best_score,
+                  "best_metrics": best_metrics,
+                  "all_metrics": all_metrics,
+                  "timestamp": timestamp,
+                  "num_configs_evaluated": len(all_metrics),
+              }, f, indent=2)
+
+          print(f"🏆 Best config: {best_name}")
+          print(f"   selection_score = {best_score:.4f}")
+          print(f"   ndcg@10        = {best_metrics.get('ndcg_at_10', 0):.4f}")
+          print(f"   recall@10      = {best_metrics.get('recall_at_10', 0):.4f}")
+          print(f"   mrr@5          = {best_metrics.get('mrr_at_5', 0):.4f}")
+          print(f"   bias_disparity = {best_metrics.get('bias_disparity_ndcg_at_10', 'N/A')}")
+          PYEOF
+
+      - name: Upload eval results
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: eval_results.json
+
+      # ── Compare against previous best DEPLOYED model in MLflow ──
+      # Looks for parent runs tagged deployment_status=deployed
+      - name: Compare with previous best
+        id: compare
+        run: |
+          python - <<'PYEOF'
+          import mlflow
+          import os
+
+          mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
+          experiment = mlflow.get_experiment_by_name("interviewprep-retrieval-eval")
+
+          current_score = float("${{ steps.run_eval.outputs.best_score }}")
+          threshold = float("${{ env.MIN_IMPROVEMENT_THRESHOLD }}")
+
+          prev_best_score = 0.0
+
+          if experiment:
+              # Search for previously deployed parent runs
+              runs = mlflow.search_runs(
+                  experiment_ids=[experiment.experiment_id],
+                  filter_string=(
+                      "tags.run_type = 'pipeline_parent' "
+                      "AND tags.deployment_status = 'deployed'"
+                  ),
+                  order_by=["metrics.best_selection_score DESC"],
+                  max_results=1,
+              )
+              if not runs.empty:
+                  prev_best_score = runs.iloc[0]["metrics.best_selection_score"]
+                  prev_config = runs.iloc[0].get("params.best_config", "unknown")
+                  print(f"Found previous deployed model: {prev_config} (score={prev_best_score:.4f})")
+
+          improvement = current_score - prev_best_score
+          is_improvement = improvement >= threshold
+
+          print(f"\nCurrent best:  {current_score:.4f}")
+          print(f"Previous best: {prev_best_score:.4f}")
+          print(f"Improvement:   {improvement:.4f} (threshold: {threshold})")
+          print(f"Deploy?        {'✅ YES' if is_improvement else '❌ NO'}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"prev_best_score={prev_best_score}\n")
+              f.write(f"is_improvement={'true' if is_improvement else 'false'}\n")
+              f.write(f"improvement={improvement:.4f}\n")
+          PYEOF
+
+  # ─────────────────────────────────────────────
+  # Job 3: Deploy best model to Vertex AI
+  # ─────────────────────────────────────────────
+  deploy:
+    name: Deploy to Model Registry
+    needs: evaluate
+    if: >
+      needs.evaluate.outputs.is_improvement == 'true'
+      && (github.ref == 'refs/heads/main' || github.event_name == 'pull_request')
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install mlflow google-cloud-aiplatform google-cloud-storage
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Download eval results
+        uses: actions/download-artifact@v4
+        with:
+          name: eval-results
+
+      # ── Upload artifacts to GCS ──
+      - name: Upload model artifacts to GCS
+        id: upload_gcs
+        env:
+          BEST_CONFIG: ${{ needs.evaluate.outputs.best_config_name }}
+          BEST_SCORE: ${{ needs.evaluate.outputs.best_selection_score }}
+        run: |
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          ARTIFACT_DIR="model_artifacts"
+          mkdir -p "$ARTIFACT_DIR"
+          
+          cp ${{ env.CONFIG_PATH }} "$ARTIFACT_DIR/retrieval_model_configs.yaml"
+          cp eval_results.json "$ARTIFACT_DIR/eval_results.json"
+          
+          # Dummy model file required by sklearn container
+          python3 -c "import pickle; pickle.dump({'type': 'retrieval-config-tracker'}, open('$ARTIFACT_DIR/model.pkl', 'wb'))"
+          
+          cat > "$ARTIFACT_DIR/deployment_manifest.json" <<MANIFEST
+          {
+            "best_config": "${BEST_CONFIG}",
+            "selection_score": ${BEST_SCORE},
+            "deployed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "git_sha": "${{ github.sha }}",
+            "git_ref": "${{ github.ref }}",
+            "pipeline_run": "${{ github.run_id }}"
+          }
+          MANIFEST
+          
+          GCS_PATH="gs://interviewprep-ai-mlflow-artifacts/model-registry/retrieval-models/${TIMESTAMP}"
+          gcloud storage cp "$ARTIFACT_DIR"/* "$GCS_PATH/"
+          
+          echo "gcs_path=$GCS_PATH" >> $GITHUB_OUTPUT
+          echo "📤 Artifacts uploaded to: $GCS_PATH"
+      # ── Register in Vertex AI Model Registry ──
+      - name: Register in Vertex AI Model Registry
+        env:
+          BEST_CONFIG: ${{ needs.evaluate.outputs.best_config_name }}
+          BEST_SCORE: ${{ needs.evaluate.outputs.best_selection_score }}
+          GCS_PATH: ${{ steps.upload_gcs.outputs.gcs_path }}
+        run: |
+          python - <<'PYEOF'
+          import json, re
+          from google.cloud import aiplatform
+          
+          aiplatform.init(
+              project="${{ env.GCP_PROJECT_ID }}",
+              location="${{ env.GCP_REGION }}",
+          )
+          
+          best_config = "${{ needs.evaluate.outputs.best_config_name }}"
+          best_score  = "${{ needs.evaluate.outputs.best_selection_score }}"
+          gcs_path    = "${{ steps.upload_gcs.outputs.gcs_path }}"
+          
+          with open("eval_results.json") as f:
+              results = json.load(f)
+          best_metrics = results.get("best_metrics", {})
+          
+          MODEL_DISPLAY_NAME = "interviewprep-retrieval-model"
+          
+          existing = aiplatform.Model.list(
+              filter=f'display_name="{MODEL_DISPLAY_NAME}"',
+              order_by="create_time desc",
+          )
+          
+          def clean_label(val):
+              return re.sub(r'[^a-z0-9_-]', '-', str(val).lower())[:63]
+          
+          upload_kwargs = dict(
+              display_name=MODEL_DISPLAY_NAME,
+              artifact_uri=gcs_path,
+              serving_container_image_uri=(
+                  "us-docker.pkg.dev/vertex-ai/prediction/sklearn-cpu.1-3:latest"
+              ),
+              description=(
+                  f"InterviewPrep retrieval model | "
+                  f"Config: {best_config} | "
+                  f"Selection Score: {best_score} | "
+                  f"NDCG@10: {best_metrics.get('ndcg_at_10', 'N/A')} | "
+                  f"Recall@10: {best_metrics.get('recall_at_10', 'N/A')}"
+              ),
+              labels={
+                  "best-config": clean_label(best_config),
+                  "selection-score": clean_label(best_score),
+                  "pipeline": "cicd-retrieval-eval",
+                  "git-sha": clean_label("${{ github.sha }}"),
+              },
+              version_aliases=["latest", "production"],
+              version_description=(
+                  f"Auto-deployed via CI/CD | "
+                  f"Config: {best_config} | Score: {best_score}"
+              ),
+          )
+          
+          if existing:
+              upload_kwargs["parent_model"] = existing[0].resource_name
+              upload_kwargs["is_default_version"] = True
+              print(f"Adding new version to existing model: {existing[0].resource_name}")
+          else:
+              print("Creating new model in registry")
+          
+          model = aiplatform.Model.upload(**upload_kwargs)
+          
+          print(f"✅ Registered: {model.resource_name}")
+          print(f"   Version: {model.version_id}")
+          print(f"   Aliases: production, latest")
+          PYEOF
+
+      # ── Tag the MLflow parent run as deployed ──
+      - name: Tag MLflow run as deployed
+        run: |
+          python - <<'PYEOF'
+          import mlflow
+          import os
+          from datetime import datetime
+
+          mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
+          client = mlflow.tracking.MlflowClient()
+          experiment = client.get_experiment_by_name("interviewprep-retrieval-eval")
+
+          if not experiment:
+              print("⚠️ Experiment not found, skipping tag")
+              exit(0)
+
+          # Find the most recent pipeline_parent run
+          runs = client.search_runs(
+              experiment_ids=[experiment.experiment_id],
+              filter_string="tags.run_type = 'pipeline_parent'",
+              order_by=["start_time DESC"],
+              max_results=1,
+          )
+
+          if runs:
+              run_id = runs[0].info.run_id
+              client.set_tag(run_id, "deployment_status", "deployed")
+              client.set_tag(run_id, "deployment_timestamp", datetime.utcnow().isoformat())
+              client.set_tag(run_id, "deployment_target", "vertex-ai-model-registry")
+              client.set_tag(run_id, "deployed_git_sha", "${{ github.sha }}")
+              client.set_tag(run_id, "deployed_config", "${{ needs.evaluate.outputs.best_config_name }}")
+              print(f"🏷️ Tagged parent run {run_id} as deployed")
+          else:
+              print("⚠️ No parent run found to tag")
+          PYEOF
+
+  # ─────────────────────────────────────────────
+  # Job 4: Notify team
+  # ─────────────────────────────────────────────
+  notify:
+    name: Post Results Summary
+    needs: [detect-changes, evaluate, deploy]
+    if: always() && needs.detect-changes.outputs.config_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post summary
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const deployed  = '${{ needs.deploy.result }}' === 'success';
+            const skipped   = '${{ needs.deploy.result }}' === 'skipped';
+            const score     = '${{ needs.evaluate.outputs.best_selection_score }}';
+            const prevScore = '${{ needs.evaluate.outputs.prev_best_score }}';
+            const bestCfg   = '${{ needs.evaluate.outputs.best_config_name }}';
+
+            let status, body;
+            if (deployed) {
+              status = '✅ Deployed';
+              body = `**${bestCfg}** deployed to Vertex AI Model Registry`;
+            } else if (skipped) {
+              status = '⏭️ Not Deployed';
+              body = `Score did not meet improvement threshold over previous best`;
+            } else {
+              status = '❌ Failed';
+              body = `Deployment failed — check workflow logs`;
+            }
+
+            const summary = `
+            ## ${status} — Retrieval Eval Pipeline
+
+            | Metric | Value |
+            |--------|-------|
+            | Best Config | \`${bestCfg}\` |
+            | Selection Score | **${score}** |
+            | Previous Best | ${prevScore} |
+            | Commit | \`${{ github.sha }}\` |
+
+            ${body}
+
+            <details>
+            <summary>Config Diff</summary>
+
+            \`\`\`diff
+            ${{ needs.detect-changes.outputs.change_summary }}
+            \`\`\`
+            </details>
+            `;
+
+            if (context.eventName === 'pull_request') {
+              await github.rest.issues.createComment({
+                ...context.repo,
+                issue_number: context.issue.number,
+                body: summary,
+              });
+            }
+            core.summary.addRaw(summary);
+            await core.summary.write();

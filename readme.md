@@ -104,6 +104,105 @@ interviewprep-ai/
 
 ---
 
+## 3. Model Development
+
+InterviewPrep-AI is a **retrieval-augmented generation (RAG)** system — it does not train a traditional ML model from scratch. Instead, the "model" is the retrieval configuration: which embedding model to use, which search strategy (vector, BM25, or hybrid), and what parameters to apply. Development focuses on evaluating and selecting the best retrieval configuration for the downstream task.
+
+The evaluation pipeline loads its data directly from the PostgreSQL database populated by the data pipeline. `EvalDatasetLoader` queries the `eval_dataset` table, which contains human-labeled relevance judgments (graded 0/1/2) linking eval queries to document chunks.
+
+Three retrieval strategies are supported — **Vector** (pgvector cosine similarity), **BM25** (PostgreSQL full-text search), and **Hybrid** (Reciprocal Rank Fusion of both). `PipelineOrchestrator` evaluates all configurations and selects the best by a composite selection score weighted across NDCG@10, Recall@10, MRR@5, and storage efficiency.
+
+For strategy details, RRF formula, and selection score weights, see [`model-development-readme.md` §5](docs/model-development-readme.md#5-retrieval-model-evaluation).
+
+---
+
+## 4. Model Validation
+
+`MetricsCalculator` computes standard retrieval metrics — **MRR@k**, **Recall@k**, **Precision@k**, and **NDCG@k** — at k = 5, 10, and 15 against the graded eval dataset. Per-query detail and score distributions by relevance grade are logged as MLflow artifacts.
+
+For metric formulas and additional measures (score separation, storage footprint), see [`model-development-readme.md` §5](docs/model-development-readme.md#5-retrieval-model-evaluation).
+
+---
+
+## 5. Model Bias Detection
+
+Bias detection slices the eval dataset by **query category** (e.g., behavioral, technical, system design) and computes retrieval metrics for each slice independently. `compute_bias_report` measures **disparity** (max − min across categories) for each metric. Categories falling more than 10 percentage points below the overall mean are flagged as underperforming, with mitigation suggestions included in the report.
+
+For an interview preparation tool, this matters directly: if the system retrieves well for behavioral questions but poorly for system design, users preparing for system design interviews get lower-quality results.
+
+For disparity formulas and underperforming slice detection, see [`model-development-readme.md` §5](docs/model-development-readme.md#5-retrieval-model-evaluation).
+
+---
+
+## 6. Experiment Tracking
+
+All evaluation runs are tracked in **MLflow** with nested parent/child runs. Each model config gets a child run logging parameters, metrics, and JSON artifacts (per-query results, category breakdown, bias report). The parent run tracks the best configuration and is tagged `deployment_status=deployed` after successful CI/CD deployment.
+
+For the full run structure and what gets logged, see [`model-development-readme.md` §6](docs/model-development-readme.md#6-experiment-tracking).
+
+---
+
+## 7. CI/CD Pipeline
+
+Two GitHub Actions workflows automate testing and model evaluation:
+
+- **Testing** (`.github/workflows/ci.yml`) — runs `pytest` with 80% coverage threshold on push/PR to `main`
+- **Retrieval Eval & Deploy** (`.github/workflows/eval_pipeline.yml`) — triggers on config changes to `dev`; detects changes → evaluates all configs → compares against previous deployed model → deploys to Vertex AI Model Registry if improved → posts PR summary
+
+The evaluation code also includes a **decision gate**: if an open-source model's NDCG@10 is within 5% of the best score, it recommends the open-source option.
+
+For the full 4-job pipeline breakdown, see [`model-development-readme.md` §7](docs/model-development-readme.md#7-cicd-pipeline).
+
+---
+
+## 8. Model Registry
+
+The best retrieval configuration is registered in **Google Cloud Vertex AI Model Registry** with version control, aliases (`latest`, `production`), and metadata (config name, scores, git SHA). Artifacts are stored in GCS at `gs://interviewprep-ai-mlflow-artifacts/model-registry/retrieval-models/<timestamp>/`.
+
+For registration details, see [`model-development-readme.md` §7](docs/model-development-readme.md#7-cicd-pipeline).
+
+---
+
+## 9. Notifications
+
+- **Airflow Email** — `EmailOperator` sends pipeline status reports to the team after each scraping run (`trigger_rule='all_done'`)
+- **GitHub PR Comments** — the eval CI/CD pipeline posts evaluation results as a PR comment
+
+---
+
+## 10. Folder Structure (Model Development)
+
+```text
+src/
+├── chunking/                           # Document chunking pipeline
+│   ├── chunker.py                      # Chunking strategies (fixed window, structural, single)
+│   ├── pipeline.py                     # Orchestrator: fetch → chunk → insert → manifest
+│   └── chunking_config.yaml            # Chunk size, overlap, round boundary patterns
+├── embeddings/                         # Embedding generation pipeline
+│   ├── pipeline.py                     # Batch encode with SentenceTransformers → DB update
+│   └── embeddings_configs.yaml         # Model list, batch sizes
+├── eval_dataset_labelling/             # Eval dataset construction
+│   ├── dataset_generator.py            # Vector/BM25/Hybrid retrieval + result pooling
+│   ├── llm_relevance_judge.py          # LLM-as-a-judge relevance grading (OpenAI)
+│   └── labeled_data_to_db.py           # Load labeled CSV into PostgreSQL
+├── evaluation/                         # Retrieval model evaluation
+│   ├── evaluator.py                    # Strategies, metrics, bias, MLflow tracking, orchestrator
+│   └── retrieval_model_configs.yaml    # Model configs for evaluation runs
+dags/
+├── chunking_embedding_pipeline.py      # Airflow DAG: chunking → embedding (with demo mode)
+.github/workflows/
+├── ci.yml                              # Pytest + coverage CI
+└── eval_pipeline.yml                   # Eval → compare → deploy → Vertex AI Model Registry
+test/
+├── chunking/                           # Chunker and pipeline tests
+├── embeddings/                         # Embedding pipeline tests
+├── eval_dataset_labelling/             # Dataset generator, LLM judge, DB loader tests
+├── evaluation/                         # Evaluator metrics, strategies, bias tests
+└── test_dag_tasks.py                   # DAG task helper function tests
+```
+
+---
+
 ## Wrap-up
 
-This project brings together web scraping, NLP preprocessing, and structured data loading into a single Airflow-orchestrated pipeline. For setup instructions and how to run tests, see [`useme.md`](useme.md). For detailed pipeline architecture, see [`data-pipeline-readme.md`](docs/data-pipeline-readme.md).
+This project brings together web scraping, NLP preprocessing, structured data loading, chunking, embedding generation, retrieval model evaluation, and automated deployment into a single platform orchestrated by Apache Airflow and GitHub Actions. For setup instructions and how to run tests, see [`useme.md`](useme.md). For detailed pipeline architecture, see [`data-pipeline-readme.md`](docs/data-pipeline-readme.md). For model development details, see [`model-development-readme.md`](docs/model-development-readme.md).
