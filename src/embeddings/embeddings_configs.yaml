@@ -6,5 +6,5 @@ generator:
   biencoder_models:
     - "all-MiniLM-L6-v2"
     - "all-mpnet-base-v2"
-  encode_batch: 256   # sentences per model.encode() call
-  db_batch: 500       # rows per UPDATE round-trip
+  encode_batch: 32   # sentences per model.encode() call
+  db_batch: 50      # rows per UPDATE round-trip
