@@ -1,50 +1,38 @@
 # InterviewPrep AI — Frontend
 
-A Next.js application that provides a web interface for browsing, searching, and analyzing interview experience documents processed by the InterviewPrep AI data pipeline.
+A Next.js chat application that provides a conversational interface for asking questions about real interview experiences. Powered by a RAG (Retrieval-Augmented Generation) backend that retrieves relevant interview reports and generates grounded answers with source citations.
 
 ## Project Structure
 
 ```
 ui/
   app/
-    page.tsx                    # Landing page with search and stats overview
-    documents/
-      page.tsx                  # Filterable, paginated document list
-      [id]/
-        page.tsx                # Document detail with chunks
-    search/
-      page.tsx                  # Full-text and semantic search
-    stats/
-      page.tsx                  # Statistics dashboard
+    layout.tsx                  # Root layout with Header and Footer
+    page.tsx                    # Chat page with message list and input
   components/
+    chat/
+      ChatInput.tsx             # Auto-resizing textarea with send button
+      MessageBubble.tsx         # User/assistant message rendering with markdown and sources
+      MessageList.tsx           # Scrollable message list with suggestion prompts
+      SourceCard.tsx            # Source attribution card for retrieved chunks
     layout/
-      Header.tsx                # Site header with navigation
-      Footer.tsx                # Site footer
-    documents/
-      DocumentCard.tsx          # Document summary card
-      DocumentDetail.tsx        # Full document view
-      FilterBar.tsx             # Filter dropdowns
-      Pagination.tsx            # Page navigation
-    search/
-      SearchBar.tsx             # Search input with mode toggle
-      SearchResults.tsx         # Full-text and semantic result lists
-    stats/
-      StatCard.tsx              # Single metric display
-      CompanyTable.tsx          # Company ranking table
-      TopicsChart.tsx           # Topic frequency bars
-      OutcomeChart.tsx          # Outcome distribution bars
+      Header.tsx                # Site header with logo and "Chat" badge
+      Footer.tsx                # Site footer with project tagline
   lib/
-    api.ts                      # Typed API client functions
-    types.ts                    # TypeScript interfaces matching backend schemas
+    api.ts                      # Typed API client (sendMessage -> POST /api/chat)
+    types.ts                    # TypeScript interfaces (ChatMessage, ChatResponse, ChatSource)
 ```
 
-## Pages
+## Features
 
-- **Home (`/`)** — Search bar, quick stats, project description
-- **Documents (`/documents`)** — Browse all documents with filters (platform, company, role, difficulty, outcome) and pagination
-- **Document Detail (`/documents/[id]`)** — Full document content, metadata fields, and collapsible text chunks
-- **Search (`/search`)** — Full-text search with keyword matching or semantic search with vector similarity. Filter by platform, company, difficulty.
-- **Stats (`/stats`)** — Overview metrics, top companies, topic frequency, outcome distribution
+- **Chat interface** — Send interview prep questions and receive AI-generated answers grounded in real interview experiences from Google, Meta, Amazon, and more
+- **Source citations** — Assistant responses include clickable links to the original interview reports used to generate the answer
+- **Markdown rendering** — Bold text, bullet lists, and inline URLs are rendered in assistant messages
+- **Suggestion prompts** — First-time users see example questions to get started
+- **Loading indicators** — Animated dot pulse while waiting for responses
+- **Latency display** — Response time shown on each assistant message
+- **Auto-scroll** — Message list scrolls to the latest message automatically
+- **Keyboard submit** — Press Enter to send, Shift+Enter for newline
 
 ## Local Setup
 
@@ -73,4 +61,10 @@ ui/
 
 ## Backend Connection
 
-All data is fetched from the FastAPI backend via the `NEXT_PUBLIC_API_BASE_URL` environment variable. The UI makes no direct database connections. The backend must be running for the UI to display data.
+The frontend communicates with the FastAPI backend via a single endpoint:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/chat` | Send a message and receive a RAG-generated response with sources |
+
+All requests go through the `NEXT_PUBLIC_API_BASE_URL` environment variable. The backend must be running with the RAG pipeline initialized for the chat to work.

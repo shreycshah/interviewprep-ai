@@ -1,72 +1,85 @@
 # InterviewPrep AI — Backend
 
-A FastAPI application that exposes the interview experience data from the InterviewPrep AI pipeline via a REST API. It reads from the existing PostgreSQL database populated by the data pipeline and supports full-text search, vector similarity search (via pgvector), and statistics aggregation.
+A FastAPI application that serves the InterviewPrep AI RAG pipeline as a chat API. On startup, it initializes the full RAG system (embedding model from Vertex AI Model Registry, hybrid retriever, OpenAI generator) and exposes a single chat endpoint. Every query is logged to PostgreSQL for production drift monitoring.
 
 ## Project Structure
 
 ```
 backend/
-  main.py               # FastAPI app entrypoint, CORS config, error handling
+  main.py               # FastAPI app entrypoint, CORS config, RAG pipeline init on startup
   routers/
-    documents.py         # Document list, detail, and chunks endpoints
-    search.py            # Full-text and semantic search endpoints
-    stats.py             # Statistics and filter options endpoints
-  db/
-    connection.py        # Database connection pool with TCP/socket mode support
-    queries.py           # SQL query definitions
+    chat.py              # POST /api/chat endpoint, query logging to query_logs table
   models/
-    schemas.py           # Pydantic response models
+    schemas.py           # Pydantic models: QueryRequest, QueryResponse, ChunkSource, TokenUsage
   .env.example           # Environment variable template
   requirements.txt       # Python dependencies
 ```
 
 ## Endpoints
 
-### Documents
-
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/documents` | Paginated list. Params: `page`, `limit`, `platform`, `company`, `role`, `outcome`, `difficulty` |
-| GET | `/api/documents/{document_id}` | Full document detail with metadata |
-| GET | `/api/documents/{document_id}/chunks` | Text chunks for a document |
+| POST | `/api/chat` | Send a message, receive RAG-generated answer with source citations, token usage, and latency |
+| GET | `/api/health` | Health check (`{"status": "ok", "rag_ready": true/false}`) |
 
-### Search
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/search?q=...` | Full-text search. Params: `q`, `page`, `limit`, `platform`, `company`, `difficulty` |
-| GET | `/api/search/semantic?q=...` | Vector similarity search via pgvector. Params: `q`, `limit`, `platform`, `company`, `difficulty` |
-
-### Stats
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/stats/overview` | Total documents, companies, roles, platform breakdown |
-| GET | `/api/stats/companies` | Companies ranked by document count |
-| GET | `/api/stats/topics` | Topics ranked by frequency |
-| GET | `/api/stats/outcomes` | Interview outcome distribution |
-
-### Meta
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/health` | Health check (`{"status": "ok"}`) |
-| GET | `/api/filters/options` | All valid filter values for UI dropdowns |
-
-### Response Format
-
-All endpoints return a consistent envelope:
+### Chat Request
 
 ```json
 {
-  "data": "...",
-  "meta": {
-    "total": 100,
-    "page": 1,
-    "limit": 20
-  }
+  "message": "How do I prepare for a Google SDE interview?"
 }
 ```
+
+### Chat Response
+
+```json
+{
+  "answer": "Based on interview experiences...",
+  "sources": [
+    {
+      "chunk_id": "123",
+      "company": "Google",
+      "role": "Software Engineer",
+      "source_url": "https://...",
+      "score": 0.85
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1200,
+    "completion_tokens": 450,
+    "total_tokens": 1650
+  },
+  "latency_ms": 2340.5
+}
+```
+
+## RAG Pipeline Initialization
+
+On startup (`main.py`), the backend:
+
+1. Creates the `query_logs` table if it doesn't exist (for drift monitoring)
+2. Calls `build_generator()` from `src.rag_pipeline.pipeline` which:
+   - Loads config from `src/rag_pipeline/config.yaml`
+   - Queries Vertex AI Model Registry for the deployed embedding model
+   - Initializes `HybridRetriever` (pgvector + BM25 + RRF fusion)
+   - Initializes `RAGGenerator` (OpenAI GPT-4.1-mini)
+3. If initialization fails, the server starts but `/api/chat` returns 503
+
+## Query Logging
+
+Every chat request is asynchronously logged to the `query_logs` PostgreSQL table via a background thread:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `query_text` | TEXT | User's question |
+| `query_embedding` | vector(384) | Query embedding vector |
+| `top_k_chunk_ids` | INTEGER[] | IDs of retrieved chunks |
+| `top_k_scores` | FLOAT[] | Retrieval scores |
+| `latency_ms` | INTEGER | End-to-end response time |
+| `llm_response` | TEXT | Generated answer |
+| `timestamp` | TIMESTAMPTZ | Request timestamp |
+
+This telemetry feeds the weekly drift detection pipeline (`src/monitoring/drift_detection.py`).
 
 ## Local Setup
 
@@ -76,44 +89,29 @@ All endpoints return a consistent envelope:
    pip install -r requirements.txt
    ```
 
-2. Start Cloud SQL Auth Proxy (for local TCP connection to Cloud SQL):
-   ```
-   cloud-sql-proxy INSTANCE_CONNECTION_NAME --port 5432
-   ```
-
-3. Create `.env` from the example:
+2. Create `.env` from the example:
    ```
    cp .env.example .env
    ```
 
-4. Fill in the environment variables in `.env`:
-   - `DB_CONNECTION_MODE=tcp`
-   - `DB_HOST=127.0.0.1` (proxy default)
-   - `DB_PORT=5432`
-   - `DB_NAME`, `DB_USER`, `DB_PASSWORD`
+3. Fill in the environment variables in `.env`:
+   - `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
    - `ALLOWED_ORIGINS=http://localhost:3000`
-   - `EMBEDDING_MODEL=all-MiniLM-L6-v2`
+   - `OPENAI_API_KEY` (required for RAG generation)
+
+4. Ensure the PostgreSQL database is accessible (via Cloud SQL Auth Proxy for local dev):
+   ```
+   cloud-sql-proxy INSTANCE_CONNECTION_NAME --port 5432
+   ```
 
 5. Run the server:
    ```
+   cd backend
    uvicorn main:app --reload --port 8000
    ```
 
-   The API is available at `http://localhost:8000`. Docs at `http://localhost:8000/docs`.
+   The API is available at `http://localhost:8000`. Health check at `http://localhost:8000/api/health`.
 
-## Database Connection
+## Dependencies
 
-The backend connects to the same PostgreSQL database (Cloud SQL) used by the data pipeline. Connection mode is controlled by `DB_CONNECTION_MODE`:
-
-- **`tcp`** (local dev): Connects via TCP, typically through Cloud SQL Auth Proxy on `127.0.0.1:5432`
-- **`socket`** (production/Cloud Run): Connects via Unix socket at `/cloudsql/{INSTANCE_CONNECTION_NAME}`
-
-When `USE_SECRET_MANAGER=true`, DB credentials are pulled from GCP Secret Manager instead of environment variables.
-
-## Tables Used
-
-- `processed_documents` — Main document content and metadata
-- `interview_metadata` — Extracted entities (company, role, difficulty, outcome, topics)
-- `companies` — Company lookup table
-- `roles` — Role/title lookup table
-- `document_chunks` — Chunked text with pgvector embeddings for semantic search
+Key packages: `fastapi`, `uvicorn`, `psycopg2-binary`, `sentence-transformers`, `openai`, `google-cloud-aiplatform`, `mlflow`, `python-dotenv`.
