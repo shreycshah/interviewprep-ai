@@ -2,7 +2,7 @@
 
 ## Overview
 
-InterviewPrep-AI is an end-to-end data engineering pipeline that scrapes interview experiences from GeeksforGeeks, LeetCode, and Medium, processes raw data through a configurable multi-step transformation pipeline, validates output integrity, and loads cleaned documents into PostgreSQL. A full-stack web application (FastAPI backend + Next.js frontend) sits on top, exposing the data through a REST API with full-text and semantic search. A RAG (Retrieval-Augmented Generation) pipeline provides AI-powered interview preparation answers using hybrid retrieval (vector + BM25) and OpenAI generation. An automated evaluation framework benchmarks multiple retrieval strategies, selects the best model, and deploys it via Vertex AI Model Registry. The pipeline is orchestrated by Apache Airflow with artifacts stored in Google Cloud Storage (GCS), and model experiments are tracked with MLflow.
+InterviewPrep-AI is an end-to-end data engineering pipeline that scrapes interview experiences from GeeksforGeeks, LeetCode, and Medium, processes raw data through a configurable multi-step transformation pipeline, validates output integrity, and loads cleaned documents into PostgreSQL. A chat-based web application (FastAPI backend + Next.js frontend) provides an AI-powered interview preparation assistant using a RAG (Retrieval-Augmented Generation) pipeline with hybrid retrieval (pgvector + BM25 + RRF fusion) and OpenAI generation. An automated evaluation framework benchmarks multiple retrieval strategies, selects the best model, and deploys it via Vertex AI Model Registry. Continuous monitoring detects embedding drift and performance degradation, automatically triggering corpus refresh when thresholds are breached. The pipeline is orchestrated by Apache Airflow with artifacts stored in Google Cloud Storage (GCS), experiments tracked with MLflow, and CI/CD managed by GitHub Actions.
 
 ---
 
@@ -51,22 +51,37 @@ RAGGenerator (OpenAI gpt-4.1-mini)
   |  - Context-grounded answers with source citations
   |  - Token usage tracking
 
+        --- Monitoring Layer ---
+
+Production Query Logs (query_logs table)
+  |
+Drift Detection (weekly, composite 2-of-3)
+  |  - Centroid cosine distance
+  |  - Per-dimension P95 shift
+  |  - Evidently DataDriftReport (KS test)
+  |
+Performance Monitor (weekly)
+  |  - Golden dataset eval score vs baseline
+  |  - Standalone Evidently drift check
+  |
+Corpus Refresh (triggered on drift/degradation)
+  |  - Re-scrape → re-chunk → re-embed → regression gate
+  |  - Slack + email notifications
+
         --- Web Application Layer ---
 
 PostgreSQL (pgvector)
   |
-FastAPI Backend (REST API)
-  |  - Documents: list, detail, chunks
-  |  - Search: full-text (GIN index) + semantic (IVFFlat index)
-  |  - Stats: overview, companies, topics, outcomes
-  |  - Filters: dynamic options from real data
+FastAPI Backend (RAG Chat API)
+  |  - POST /api/chat: hybrid retrieval + OpenAI generation
+  |  - GET /api/health: readiness check
+  |  - Query logging to query_logs table (drift monitoring)
   |
-Next.js Frontend (Browser)
-     - Home: search bar, quick stats
-     - Documents: filterable, paginated browse
-     - Document Detail: content + metadata + chunks
-     - Search: full-text / semantic toggle
-     - Stats: companies, topics, outcomes dashboard
+Next.js Frontend (Chat Interface)
+     - Single-page conversational UI
+     - Message bubbles with markdown rendering
+     - Source citations with clickable links
+     - Suggestion prompts for first-time users
 ```
 
 ---
@@ -254,20 +269,36 @@ Framework: pytest with unittest.mock (no real GCS, DB, or network calls).
 |------|---------|
 | `ci.yml` | GitHub Actions workflow. Runs on push to main and PRs. Python 3.10, installs deps + Airflow + spaCy model + sentence-transformers. Runs pytest with 80% coverage threshold. Uploads test results + HTML reports as artifacts. |
 | `eval_pipeline.yml` | **Retrieval model evaluation & deployment pipeline.** Triggered on changes to `src/evaluation/retrieval_model_configs.yaml`. Jobs: (1) `detect-changes`: checks if config changed. (2) `evaluate`: runs `PipelineOrchestrator`, finds best model by selection_score, compares against previous deployed model. (3) `deploy` (if >= 1% improvement): uploads artifacts to GCS, registers model in Vertex AI Model Registry with labels and aliases, tags MLflow parent run as deployed. (4) `notify`: posts summary comment to PR with results table and config diff. |
+| `drift_detection.yml` | **Weekly composite drift check.** Runs Monday 9 AM UTC (or manual). Pulls production query embeddings, computes 3 drift metrics (centroid cosine distance, per-dimension P95 shift, Evidently DataDriftReport). If any 2 of 3 breach thresholds → dispatches `corpus_refresh.yml` with drift context. Logs results to MLflow `monitoring` experiment. |
+| `weekly_performance_check.yml` | **Weekly performance + Evidently standalone drift.** Runs Monday 10 AM UTC (or manual with `--dry-run`). Evaluates golden dataset against deployed config; triggers corpus refresh if selection_score drops >3% from baseline OR Evidently drift exceeds 30% of embedding features. Logs to MLflow `monitoring` experiment. |
+| `corpus_refresh.yml` | **Corpus refresh pipeline.** Triggered by drift/performance monitors or manually. Jobs: (1) `snapshot-before-score`: query MLflow for deployed baseline. (2) `run-corpus-pipeline`: trigger Airflow scraping DAG → chunking/embedding (polls up to 6 hours). (3) `regression-gate`: re-evaluate with `PipelineOrchestrator`, abort if score regresses (tolerance -0.005). (4) `log-and-notify`: tag MLflow run, send Slack webhook (color-coded), send email, post GitHub Actions summary. |
 
 ---
 
-### 13. Root Configuration Files
+### 13. Monitoring (`src/monitoring/`)
+
+Production drift detection and performance monitoring that feeds the automated corpus refresh pipeline.
 
 | File | Purpose |
 |------|---------|
-| `requirements.txt` | Python dependencies: requests, beautifulsoup4, google-cloud-storage, playwright, markdownify, pyyaml, langdetect, datasketch, spacy, psycopg2-binary, pytest, sentence-transformers. |
+| `config.yaml` | Monitoring config: database connection, embedding model settings (`all-MiniLM-L6-v2`, 384-dim), GCS paths for reference distributions and drift reports, drift thresholds (centroid distance 0.15, per-dim shift 2x std, Evidently 30%), MLflow experiment name. |
+| `drift_detection.py` | **Composite drift check.** Pulls production query embeddings from `query_logs` table (last N days). Computes 3 independent metrics: (1) centroid cosine distance vs reference, (2) per-dimension P95 shift, (3) Evidently DataDriftReport (KS test per feature). If any 2 of 3 breach → triggers `corpus_refresh.yml` via GitHub API. Logs all metrics to MLflow. Posts Slack notifications. |
+| `performance_monitor.py` | **Weekly performance evaluation.** Runs golden dataset against deployed retrieval config via `PipelineOrchestrator`. Compares selection_score against deployment baseline from MLflow. Triggers corpus refresh if score drops >3%. Also runs standalone Evidently drift check. Supports dry-run mode. |
+| `build_reference_distribution.py` | **Reference distribution builder.** Computes baseline embedding statistics (mean, std, quantiles per dimension) from the golden dataset. Saves as `.npz` to GCS for drift comparison. |
+| `utils.py` | Shared utilities for config loading, database connections, and MLflow setup. |
+
+### 14. Root Configuration Files
+
+| File | Purpose |
+|------|---------|
+| `requirements.txt` | Python dependencies: requests, beautifulsoup4, google-cloud-storage, playwright, markdownify, pyyaml, langdetect, datasketch, spacy, psycopg2-binary, pytest, sentence-transformers, numpy, pandas, pgvector, rank-bm25, openai, mlflow, evidently. |
 | `requirements-test.txt` | Test-specific dependencies. |
 | `readme.md` | Project documentation with setup instructions and architecture overview. |
+| `summary.md` | Detailed file-by-file architecture summary. |
 
 ---
 
-### 14. Documentation (`docs/`)
+### 15. Documentation (`docs/`)
 
 | File | Purpose |
 |------|---------|
@@ -279,44 +310,36 @@ Framework: pytest with unittest.mock (no real GCS, DB, or network calls).
 
 ---
 
-### 15. Backend API (`backend/`)
+### 16. Backend API (`backend/`)
+
+RAG-powered chat API. On startup, initializes the full retrieval + generation pipeline and serves it via a single chat endpoint. Every query is logged for production drift monitoring.
 
 | File | Purpose |
 |------|---------|
-| `main.py` | FastAPI app entrypoint. CORS middleware (configurable origins), global exception handler, health check endpoint. Calls `create_indexes()` on startup to ensure GIN and IVFFlat indexes exist. |
-| `db/connection.py` | Database connection pool (psycopg2 `SimpleConnectionPool`). Supports two modes via `DB_CONNECTION_MODE`: `tcp` (local dev via Cloud SQL Auth Proxy) and `socket` (Cloud Run via Unix socket). Optionally pulls credentials from GCP Secret Manager. Exposes `get_connection()` context manager. |
-| `db/queries.py` | All SQL query constants. Document list/detail with JOINs across `processed_documents`, `interview_metadata`, `companies`, `roles`. Full-text search using `to_tsvector`/`plainto_tsquery` with `coalesce()` to match the GIN index. Semantic search using pgvector cosine distance (`<=>`). Stats aggregations and filter option queries. |
-| `db/create_indexes.py` | One-time index creation script run on startup. Creates `idx_fts_documents` (GIN on tsvector) and `idx_embedding_minilm` (IVFFlat on vector embeddings with 100 lists). Uses `CREATE INDEX IF NOT EXISTS` for idempotency. |
-| `routers/documents.py` | `GET /api/documents` (paginated, filterable by platform/company/role/outcome/difficulty), `GET /api/documents/{id}` (full detail), `GET /api/documents/{id}/chunks` (text chunks). Dynamic WHERE clause building with parameterized queries. |
-| `routers/search.py` | `GET /api/search?q=...` (full-text with pagination), `GET /api/search/semantic?q=...` (vector similarity). Semantic search lazy-loads `sentence-transformers` model, encodes query, queries pgvector. Both support platform/company/difficulty filters. |
-| `routers/stats.py` | `GET /api/stats/overview`, `/stats/companies`, `/stats/topics`, `/stats/outcomes`. `GET /api/filters/options` returns all valid filter values for UI dropdowns. |
-| `models/schemas.py` | Pydantic response models: `DocumentSummary`, `DocumentDetail`, `DocumentChunk`, `SearchResult`, `SemanticSearchResult`, `StatsOverview`, `CompanyStat`, `TopicStat`, `OutcomeStat`, `FilterOptions`. |
+| `main.py` | FastAPI app entrypoint. CORS middleware (configurable origins), global exception handler, health check endpoint (`GET /api/health` returns `{"status": "ok", "rag_ready": bool}`). On startup: ensures `query_logs` table exists, calls `build_generator()` from `src.rag_pipeline.pipeline` to initialize `HybridRetriever` + `RAGGenerator`. If RAG init fails, server starts but chat returns 503. |
+| `routers/chat.py` | `POST /api/chat` endpoint. Accepts `QueryRequest` (message string, 1-2000 chars). Calls `_generator.generate(message)` which runs hybrid retrieval (pgvector + BM25 + RRF) then OpenAI generation. Returns `QueryResponse` with answer, source citations (chunk_id, company, role, source_url, score), token usage, and latency. Asynchronously logs query telemetry to `query_logs` table via `ThreadPoolExecutor` (fire-and-forget). Creates `query_logs` table on startup with columns: query_text, query_embedding (vector(384)), top_k_chunk_ids, top_k_scores, latency_ms, llm_response, timestamp. |
+| `models/schemas.py` | Pydantic models: `QueryRequest` (message field with validation), `ChunkSource` (chunk_id, company, role, source_url, score), `TokenUsage` (prompt/completion/total tokens), `QueryResponse` (answer, sources, usage, latency_ms). |
+| `.env.example` | Environment variable template: DB connection (host, port, name, user, password), Cloud SQL config, GCP Secret Manager toggle, CORS origins, embedding model name. |
+| `requirements.txt` | Dependencies: fastapi, uvicorn, python-dotenv, psycopg2-binary, openai, sentence-transformers, numpy, pyyaml, google-cloud-aiplatform, mlflow. |
 
 ---
 
-### 16. Frontend UI (`ui/`)
+### 17. Frontend UI (`ui/`)
+
+Single-page chat application built with Next.js 14 and Tailwind CSS. Provides a conversational interface to the RAG pipeline.
 
 | File | Purpose |
 |------|---------|
-| `lib/types.ts` | TypeScript interfaces matching all backend response schemas. |
-| `lib/api.ts` | Typed API client using `fetch`. All calls go to `NEXT_PUBLIC_API_BASE_URL`. Functions for documents, search, semantic search, stats, and filter options. |
-| `app/page.tsx` | Home page. Search bar (navigates to `/search`), quick stats bar (total documents, companies, platforms), project description, links to Documents and Stats. |
-| `app/documents/page.tsx` | Document list page. Fetches filter options on mount, renders `FilterBar` (5 dropdowns), paginated grid of `DocumentCard` components. |
-| `app/documents/[id]/page.tsx` | Document detail page. Fetches document + chunks in parallel. Shows `DocumentDetailView` with all metadata and content. Collapsible chunks section. |
-| `app/search/page.tsx` | Search page. `SearchBar` with full-text/semantic radio toggle. Filter dropdowns for platform, company, difficulty. Renders `FulltextResults` or `SemanticResults` based on mode. Paginated for full-text. |
-| `app/stats/page.tsx` | Stats dashboard. Fetches all four stats endpoints in parallel. `StatCard` grid for overview, `CompanyTable` for top 25, `TopicsChart` with percentage bars, `OutcomeChart` with distribution bars. |
-| `components/layout/Header.tsx` | Site header with nav links (Home, Documents, Search, Stats). Active link highlighting via `usePathname`. |
-| `components/layout/Footer.tsx` | Site footer with project tagline. |
-| `components/documents/DocumentCard.tsx` | Card showing title, platform badge, company, role, difficulty, outcome, date. Links to detail page. |
-| `components/documents/DocumentDetail.tsx` | Full document view: metadata grid, topics tags, cleaned content block. |
-| `components/documents/FilterBar.tsx` | Five select dropdowns populated from `FilterOptions`. Calls `onChange` on selection. |
-| `components/documents/Pagination.tsx` | Previous/Next buttons with page count. |
-| `components/search/SearchBar.tsx` | Text input with submit button and full-text/semantic radio toggle. |
-| `components/search/SearchResults.tsx` | `FulltextResults`: cards with snippet (HTML rendered). `SemanticResults`: cards with similarity percentage and raw text preview. |
-| `components/stats/StatCard.tsx` | Single metric card with label and formatted number. |
-| `components/stats/CompanyTable.tsx` | Table with company name and document count columns. |
-| `components/stats/TopicsChart.tsx` | Horizontal bar chart (CSS-based) showing top 20 topics by frequency. |
-| `components/stats/OutcomeChart.tsx` | Percentage bars for each interview outcome. |
+| `lib/types.ts` | TypeScript interfaces: `ChatSource` (chunk_id, company, role, source_url, score), `TokenUsage` (prompt/completion/total tokens), `ChatResponse` (answer, sources, usage, latency_ms), `ChatMessage` (id, role, content, sources, latency_ms, timestamp). |
+| `lib/api.ts` | Typed API client. Single function `sendMessage(message)` → `POST /api/chat` via `fetch`. Base URL from `NEXT_PUBLIC_API_BASE_URL` env var. Error handling extracts `detail` from JSON error responses. |
+| `app/layout.tsx` | Root layout. Renders `Header` + `<main>` + `Footer`. Uses local Geist Sans font. |
+| `app/page.tsx` | **Chat page.** Manages `messages` state (array of `ChatMessage`). `handleSend()`: appends user message, calls `sendMessage()`, appends assistant response (or error message). Listens for `suggestion-click` custom events from `MessageList`. |
+| `components/chat/ChatInput.tsx` | Auto-resizing `<textarea>` with send button. Enter submits, Shift+Enter adds newline. Auto-focuses after each response. Max height 160px. |
+| `components/chat/MessageBubble.tsx` | Renders user messages (indigo bubble, right-aligned) and assistant messages (white bubble, left-aligned). Assistant messages: parses markdown (bold, lists, inline URLs), extracts `**Sources**` section into clickable pill links with truncated domain display. Shows timestamp and latency. |
+| `components/chat/MessageList.tsx` | Scrollable message container. When empty, shows welcome screen: "Interview Prep Assistant" title, description, and 3 suggestion buttons (Google SDE prep, Amazon system design, Meta frontend). Suggestion buttons dispatch `suggestion-click` custom events. Shows animated dot-pulse loading indicator while waiting for response. Auto-scrolls to bottom on new messages. |
+| `components/chat/SourceCard.tsx` | Source attribution component. Deduplicates sources by URL+company, shows top 2 by retrieval score. Renders as compact pills with company and role labels. |
+| `components/layout/Header.tsx` | Minimal header: logo ("IP" badge), "InterviewPrep AI" title, "Chat" badge. Links to home. |
+| `components/layout/Footer.tsx` | Footer with project tagline: "Interview experiences from GeeksforGeeks, LeetCode, and Medium." |
 
 ---
 
@@ -335,6 +358,8 @@ gs://interviewprep-ai-data/
   eval/queries.csv             # Evaluation query set
   eval/retrieval_labeling_dataset.csv  # Pooled retrieval results
   eval/labeled_dataset.csv     # LLM-scored gold standard dataset
+  monitoring/reference_distribution.npz  # Baseline embedding statistics for drift detection
+  monitoring/drift_reports/    # Historical drift detection reports
 
 gs://interviewprep-ai-mlflow-artifacts/
   model-registry/retrieval-models/{timestamp}/  # Deployed model artifacts
@@ -358,17 +383,23 @@ gs://interviewprep-ai-mlflow-artifacts/
 12. **LLM-as-a-judge evaluation** - GPT-4o-mini scores retrieval relevance to build gold standard datasets, with resume support and batch checkpointing
 13. **Automated model selection & deployment** - CI/CD evaluates retrieval configs, compares against deployed model, auto-deploys on improvement via Vertex AI Model Registry
 14. **MLflow experiment tracking** - Parent/child run hierarchy for evaluation experiments; deployed config tagged for registry lookup
+15. **Composite drift detection** - 2-of-3 metric voting (centroid distance, per-dim shift, Evidently) prevents false positives from single-metric noise
+16. **Automated corpus refresh with regression gate** - Drift/performance triggers re-scrape/re-embed pipeline with mandatory regression check before accepting new corpus
+17. **Fire-and-forget query logging** - Background thread writes production telemetry without blocking chat latency
 
 ---
 
 ## External Services
 
-- **Google Cloud Storage** - Data storage (raw, processed, checkpoints, quarantine, reports, eval datasets, model artifacts)
-- **PostgreSQL (Cloud SQL)** - `processed_documents`, `interview_metadata`, `companies`, `roles`, `document_chunks`, `eval_dataset` tables
+- **Google Cloud Storage** - Data storage (raw, processed, checkpoints, quarantine, reports, eval datasets, model artifacts, reference distributions, drift reports)
+- **PostgreSQL (Cloud SQL)** - `processed_documents`, `interview_metadata`, `companies`, `roles`, `document_chunks`, `eval_dataset`, `query_logs` tables
 - **Apache Airflow** - DAG orchestration, task scheduling, XCom passing
 - **spaCy** - NER model (`en_core_web_sm`) for entity recognition
 - **sentence-transformers** - Biencoder models for vector embeddings
 - **pgvector** - PostgreSQL extension for vector similarity search
 - **OpenAI API** - GPT-4.1-mini for RAG answer generation; GPT-4o-mini for LLM-as-a-judge relevance scoring
-- **Vertex AI Model Registry** - Stores deployed retrieval model configs with labels and aliases
-- **MLflow** - Experiment tracking for retrieval model evaluation (parent/child runs, metrics, tags)
+- **Vertex AI Model Registry** - Stores deployed retrieval model configs with labels and aliases; queried at runtime for model selection
+- **MLflow** - Experiment tracking for evaluation (parent/child runs), monitoring (drift/performance logs), and deployment tagging
+- **Evidently** - DataDriftReport for embedding feature drift detection (Kolmogorov-Smirnov tests)
+- **Slack** - Webhook integration for drift alerts, corpus refresh status, and pipeline notifications
+- **GitHub Actions** - CI/CD orchestration (testing, evaluation, drift detection, performance monitoring, corpus refresh)
